@@ -3,15 +3,17 @@
 // SUPER_ADMIN staff account so `/auth/staff/login` is testable end-to-end.
 // Run with: npm run prisma:seed --workspace backend
 import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import { PrismaNeon } from '@prisma/adapter-neon';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import * as argon2 from 'argon2';
 import { AuthMethod, DepartmentKey, StaffRole } from '@ticket-platform/shared';
 
-// See src/prisma/prisma.service.ts for why this goes through the `pg`
-// driver adapter instead of a bare `new PrismaClient()`.
+// See src/prisma/prisma.service.ts for why this goes through Neon's
+// serverless driver instead of a bare `new PrismaClient()`.
+neonConfig.webSocketConstructor = ws;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+const prisma = new PrismaClient({ adapter: new PrismaNeon(pool) });
 
 async function main() {
   const org = await prisma.organization.upsert({

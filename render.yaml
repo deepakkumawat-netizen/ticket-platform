@@ -37,23 +37,17 @@ services:
       npm run build --workspace backend &&
       npm run build --workspace frontend
     # `prisma migrate deploy` is deliberately NOT run here. It uses Prisma's
-    # CLI/migrate engine, a separate Rust component that (confirmed live)
-    # cannot be fixed by NODE_OPTIONS/driver adapters — it resolves and
-    # connects to the DB itself, and Render can't route IPv6 to Neon's
-    # endpoint, so it fails every time with P1001 regardless. The app itself
-    # doesn't have this problem (see prisma.service.ts's `pg` driver
-    # adapter, which correctly respects NODE_OPTIONS below). Run migrations
-    # manually from a machine that can reach the DB directly instead:
+    # CLI/migrate engine, a separate Rust component that resolves/connects
+    # to the DB itself and (confirmed live) cannot reliably reach Neon from
+    # Render's network. The app itself connects fine — see
+    # prisma.service.ts's Neon serverless driver adapter (HTTPS/WebSocket,
+    # not raw TCP+DNS). Run migrations manually from a machine that can
+    # reach the DB directly instead:
     #   DATABASE_URL="<neon connection string>" npx prisma migrate deploy --schema=backend/prisma/schema.prisma
     startCommand: node backend/dist/src/main.js
     envVars:
       - key: DATABASE_URL
         sync: false # paste your Neon (or other Postgres) connection string here
-      # Forces IPv4-first DNS resolution for the app's own DB connection
-      # (via the `pg` driver adapter — see prisma.service.ts) — Render can't
-      # route IPv6 to Neon's endpoint, confirmed live.
-      - key: NODE_OPTIONS
-        value: --dns-result-order=ipv4first
       - key: REDIS_URL
         fromService:
           type: keyvalue

@@ -81,21 +81,25 @@ Render's own Postgres has no free tier for new databases, so the database is ext
    ```
    (On Windows PowerShell: `$env:DATABASE_URL="<neon connection string>"; <command>`)
 
-**Why migrations run manually, and why the app uses a `pg` driver adapter:** confirmed live —
-Render's network can't route IPv6 to Neon's endpoint. Prisma's default Rust query engine (and
-its separate CLI/migrate engine) resolve and connect to the database themselves, entirely
-bypassing Node's `dns` module, so `NODE_OPTIONS=--dns-result-order=ipv4first` has no effect on
-them and every connection fails with `P1001: Can't reach database server`. The app itself is
-fixed by routing Prisma through the `pg` package instead (`@prisma/adapter-pg`, wired up in
-`backend/src/prisma/prisma.service.ts`) — `pg` uses Node's own `net`/`dns` stack, which *does*
-respect that setting. The CLI's `migrate deploy` isn't affected by that fix (it's a separate
-component), so it has to run from somewhere that can reach Neon directly instead.
+**Why migrations run manually, and why the app uses Neon's serverless driver:** confirmed live
+across two attempts — Prisma's default Rust query engine failed every connection with
+`P1001: Can't reach database server` (it resolves/connects to the DB itself, bypassing Node
+entirely, and Render's network can't route IPv6 to Neon's endpoint). Switching to a plain `pg`
+driver adapter (raw TCP on port 5432) got further but still hit intermittent
+`getaddrinfo ENOTFOUND` failures — Render's outbound DNS/TCP path to Neon's direct endpoint isn't
+fully reliable. The fix that actually holds up: **Neon's own serverless driver**
+(`@neondatabase/serverless` + `@prisma/adapter-neon`, wired up in `backend/src/prisma/prisma.service.ts`),
+which talks to Neon over a WebSocket tunneled through standard HTTPS (port 443) instead of raw
+TCP — this is Neon's own recommended approach for serverless/edge-style hosts and sidesteps the
+whole class of raw-socket connectivity issues. `prisma migrate deploy` still isn't covered by
+this (it's a separate CLI component with its own connection logic), so it runs manually from a
+machine that can reach Neon directly instead.
 
 Prefer to set this up by hand instead of via Blueprint? Same commands, just entered directly in
 Render's "New Web Service" form:
 - **Build Command**: `npm install && npm run build --workspace packages/shared && npx prisma generate --schema=backend/prisma/schema.prisma && npm run build --workspace backend && npm run build --workspace frontend`
 - **Start Command**: `node backend/dist/src/main.js`
-- **Environment Variables**: `DATABASE_URL` (Neon connection string), `NODE_OPTIONS=--dns-result-order=ipv4first`, `JWT_ACCESS_SECRET` (any long random string), `JWT_ACCESS_TTL=15m`
+- **Environment Variables**: `DATABASE_URL` (Neon connection string), `JWT_ACCESS_SECRET` (any long random string), `JWT_ACCESS_TTL=15m`
 
 ## Repo layout
 
