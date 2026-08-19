@@ -42,6 +42,12 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false # paste your Neon (or other Postgres) connection string here
+      # Forces IPv4-first DNS resolution — Render can't route IPv6 to Neon's
+      # endpoint, which otherwise fails every DB connection (including
+      # `prisma migrate deploy` above, a separate process from the app
+      # itself) with "P1001: Can't reach database server", confirmed live.
+      - key: NODE_OPTIONS
+        value: --dns-result-order=ipv4first
       - key: REDIS_URL
         fromService:
           type: keyvalue
