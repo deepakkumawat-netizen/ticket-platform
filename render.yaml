@@ -1,4 +1,7 @@
-# Render Blueprint — native Node runtime throughout, NO Docker anywhere.
+# Render Blueprint — ONE combined web service (backend serves the built
+# frontend itself, see backend/src/app.module.ts's ServeStaticModule) plus a
+# free Redis-compatible store. Native Node runtime throughout — NO Docker.
+#
 # Deploy: push this repo to GitHub, then in the Render dashboard use
 # "New +" -> "Blueprint" and point it at the repo. Render reads this file
 # and provisions everything below in one go.
@@ -19,15 +22,20 @@ services:
     ipAllowList:
       - source: 0.0.0.0/0
 
+  # Backend + frontend in one service: the build compiles both, the backend
+  # then serves the frontend's static files itself (same origin, same port)
+  # while its own API stays under /api — no second service, no separate
+  # frontend URL to keep in sync.
   - type: web
-    name: ticketplatform-backend
+    name: ticketplatform
     runtime: node
     plan: free
     buildCommand: >-
       npm install &&
       npm run build --workspace packages/shared &&
       npx prisma generate --schema=backend/prisma/schema.prisma &&
-      npm run build --workspace backend
+      npm run build --workspace backend &&
+      npm run build --workspace frontend
     startCommand: >-
       npx prisma migrate deploy --schema=backend/prisma/schema.prisma &&
       node backend/dist/src/main.js
@@ -43,24 +51,3 @@ services:
         generateValue: true # Render generates a strong random secret at deploy time
       - key: JWT_ACCESS_TTL
         value: 15m
-
-  - type: web
-    name: ticketplatform-frontend
-    runtime: static
-    buildCommand: >-
-      npm install &&
-      npm run build --workspace packages/shared &&
-      npm run build --workspace frontend
-    staticPublishPath: ./frontend/dist
-    routes:
-      - source: /*
-        destination: /index.html
-        type: rewrite
-    envVars:
-      # Render assigns service URLs as https://<name>.onrender.com UNLESS
-      # "ticketplatform-backend" is already taken globally, in which case it
-      # appends a suffix — after the first deploy, check the backend
-      # service's actual URL in the Render dashboard and update this value
-      # (then redeploy the frontend) if it doesn't match.
-      - key: VITE_API_BASE_URL
-        value: https://ticketplatform-backend.onrender.com

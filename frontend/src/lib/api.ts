@@ -3,14 +3,15 @@
 // into one "auth token" concept, that's exactly the boundary the backend
 // guards enforce (see backend/src/auth/jwt-payload.interface.ts).
 
-// In local dev, VITE_API_BASE_URL is unset — requests go to '/api/...' and
-// Vite's dev-server proxy (vite.config.ts) forwards them to the backend on
-// localhost:3000. In production (Render, or anywhere else frontend/backend
-// are separate deployments on different origins), VITE_API_BASE_URL is set
-// at build time to the backend's real URL and requests go straight there —
-// no proxy, so this must be the backend's bare origin (no /api prefix; the
-// backend's routes are mounted at root, e.g. /auth/staff/login).
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+// Default '/api' covers BOTH local dev (Vite's proxy forwards it to
+// localhost:3000/api — see vite.config.ts) AND the standard production
+// deploy, where the backend serves this built frontend itself from the same
+// origin (see backend's ServeStaticModule in app.module.ts) and its real API
+// routes already live under /api (main.ts's setGlobalPrefix). Only set
+// VITE_API_BASE_URL at build time if the frontend is ever deployed
+// separately from the backend (a different origin) — then it must be the
+// backend's full URL, e.g. "https://ticketplatform-backend.onrender.com".
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 const STAFF_TOKEN_KEY = 'tp_staff_token';
 const CUSTOMER_TOKEN_KEY = 'tp_customer_token';

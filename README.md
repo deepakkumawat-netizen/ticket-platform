@@ -59,9 +59,10 @@ Seeded login (created by `prisma:seed`, change before real use):
 
 ## Deploying to Render (no Docker)
 
-`render.yaml` at the repo root is a Render Blueprint — it provisions the backend (native Node
-runtime, no Dockerfile involved), the static-built frontend, and a free Redis-compatible Key Value
-store, all in one go.
+`render.yaml` at the repo root is a Render Blueprint — ONE combined web service (the backend
+builds the frontend and serves its static files itself — see `ServeStaticModule` in
+`backend/src/app.module.ts` — so there's no second service or cross-origin URL to keep in sync)
+plus a free Redis-compatible Key Value store. Native Node runtime, no Dockerfile involved.
 
 Render's own Postgres has no free tier for new databases, so the database is external:
 
@@ -69,19 +70,22 @@ Render's own Postgres has no free tier for new databases, so the database is ext
    (`postgresql://...`).
 2. Push this repo to GitHub (already done if you're reading this from the deployed repo).
 3. In the Render dashboard: **New +** → **Blueprint** → select this repo. Render reads
-   `render.yaml` and shows you the 3 services it's about to create.
-4. When prompted for `DATABASE_URL` on the backend service, paste the Neon connection string.
-5. Deploy. The backend's build step runs `prisma migrate deploy` against that database
-   automatically on every deploy — no separate migration step needed.
-6. Once deployed, check the backend service's actual URL in the Render dashboard (it may differ
-   from `https://ticketplatform-backend.onrender.com` if that name was already taken) — if it
-   differs, update `VITE_API_BASE_URL` in `render.yaml` (or directly in the frontend service's
-   environment settings) and redeploy the frontend.
-7. Run the seed script once, from your machine, pointed at the Neon database:
+   `render.yaml` and shows you the 2 services it's about to create.
+4. When prompted for `DATABASE_URL`, paste the Neon connection string.
+5. Deploy. The build step compiles both backend and frontend; the start step runs
+   `prisma migrate deploy` against Neon automatically before the server starts — no separate
+   migration step, no separate frontend deploy.
+6. Run the seed script once, from your machine, pointed at the Neon database:
    ```bash
    DATABASE_URL="<neon connection string>" npm run prisma:seed --workspace backend
    ```
    (On Windows PowerShell: `$env:DATABASE_URL="<neon connection string>"; npm run prisma:seed --workspace backend`)
+
+Prefer to set the two services up by hand instead of via Blueprint? Same build/start commands,
+just entered directly in Render's "New Web Service" form:
+- **Build Command**: `npm install && npm run build --workspace packages/shared && npx prisma generate --schema=backend/prisma/schema.prisma && npm run build --workspace backend && npm run build --workspace frontend`
+- **Start Command**: `npx prisma migrate deploy --schema=backend/prisma/schema.prisma && node backend/dist/src/main.js`
+- **Environment Variables**: `DATABASE_URL` (Neon connection string), `JWT_ACCESS_SECRET` (any long random string), `JWT_ACCESS_TTL=15m`
 
 ## Repo layout
 
