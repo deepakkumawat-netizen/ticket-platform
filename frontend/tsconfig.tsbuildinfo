@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/app/requireauth.tsx","./src/features/auth/portalloginpage.tsx","./src/features/auth/staffloginpage.tsx","./src/features/portal/portalhomepage.tsx","./src/features/tickets/staffhomepage.tsx","./src/lib/api.ts"],"version":"5.9.3"}
