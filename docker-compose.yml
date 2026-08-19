@@ -1,0 +1,36 @@
+# Single-server dev/prod stack: Postgres + Redis are containerized;
+# backend/frontend are run via `npm run dev:*` during development and can be
+# added as build-and-run services here later for a one-command prod deploy.
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ticketplatform
+      POSTGRES_PASSWORD: ticketplatform
+      POSTGRES_DB: ticketplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketplatform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

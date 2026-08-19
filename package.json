@@ -1,0 +1,22 @@
+{
+  "name": "ticket-platform",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Internal low-code ticket management platform (Tech department first, then Operations/Content/Sales).",
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run start:dev --workspace backend",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace packages/shared && npm run build --workspace backend && npm run build --workspace frontend",
+    "prisma:generate": "npm run prisma:generate --workspace backend",
+    "prisma:migrate": "npm run prisma:migrate --workspace backend",
+    "prisma:seed": "npm run prisma:seed --workspace backend"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

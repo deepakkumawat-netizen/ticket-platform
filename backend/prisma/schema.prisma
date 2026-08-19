@@ -1,0 +1,358 @@
+// Ticket Management System — core data model.
+// Design principle: editing a field/status/SLA definition must NEVER corrupt
+// or retroactively alter an already-created ticket. See TicketTypeVersion.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Identity ─────────────────────────────────────────────────────────────
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  departments Department[]
+  companies   Company[]
+  customers   Customer[]
+  users       User[]
+  tickets     Ticket[]
+  createdAt   DateTime     @default(now())
+}
+
+model Department {
+  id        String            @id @default(cuid())
+  org       Organization      @relation(fields: [orgId], references: [id])
+  orgId     String
+  key       String // TECH | OPERATIONS | CONTENT | SALES
+  name      String
+  isActive  Boolean           @default(false) // seeded inactive until onboarded
+  users     User[]
+  ticketTypes TicketTypeDefinition[]
+  tickets   Ticket[]
+  createdAt DateTime          @default(now())
+
+  @@unique([orgId, key])
+}
+
+enum StaffRole {
+  SUPER_ADMIN
+  DEPT_ADMIN
+  AGENT
+}
+
+// Internal staff. SUPER_ADMIN has departmentId = null (org-wide).
+model User {
+  id           String       @id @default(cuid())
+  org          Organization @relation(fields: [orgId], references: [id])
+  orgId        String
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  email        String       @unique
+  name         String
+  role         StaffRole
+  isActive     Boolean      @default(true)
+  credentials  AuthCredential[]
+  assignedTickets Ticket[]  @relation("AssignedAgent")
+  comments     Comment[]
+  auditLogs    AuditLog[]
+  notifications Notification[]
+  createdAt    DateTime     @default(now())
+}
+
+// A B2B account. Individual contacts under it are Customer rows with companyId set.
+model Company {
+  id        String       @id @default(cuid())
+  org       Organization @relation(fields: [orgId], references: [id])
+  orgId     String
+  name      String
+  contacts  Customer[]
+  tickets   Ticket[]
+  createdAt DateTime     @default(now())
+}
+
+// External portal user. companyId null => standalone B2C individual;
+// companyId set => a named contact under a B2B account.
+model Customer {
+  id          String       @id @default(cuid())
+  org         Organization @relation(fields: [orgId], references: [id])
+  orgId       String
+  company     Company?     @relation(fields: [companyId], references: [id])
+  companyId   String?
+  email       String       @unique
+  name        String
+  phone       String?
+  isActive    Boolean      @default(true)
+  credentials AuthCredential[]
+  tickets     Ticket[]
+  comments    Comment[]
+  notifications Notification[]
+  createdAt   DateTime     @default(now())
+}
+
+enum AuthMethod {
+  LOCAL_PASSWORD
+  GOOGLE_OIDC // reserved for Phase 4+ SSO — no migration needed to add it
+  MICROSOFT_OIDC
+}
+
+// Decouples "how you log in" from the identity table so SSO can be added
+// later (Phase 4+) by inserting a new AuthCredential row/method, not by
+// migrating User/Customer.
+model AuthCredential {
+  id             String    @id @default(cuid())
+  method         AuthMethod
+  passwordHash   String?   // set when method = LOCAL_PASSWORD
+  providerSubject String?  // set for OIDC methods later
+  user           User?     @relation(fields: [userId], references: [id])
+  userId         String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  customerId     String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([method, providerSubject])
+}
+
+// ── Low-code engine ──────────────────────────────────────────────────────
+
+// One buildable "kind" of ticket within a department (e.g. "Bug Report").
+model TicketTypeDefinition {
+  id           String       @id @default(cuid())
+  department   Department   @relation(fields: [departmentId], references: [id])
+  departmentId String
+  key          String
+  name         String
+  description  String?
+  isActive     Boolean      @default(true)
+  fields       FieldDefinition[]
+  statuses     StatusDefinition[]
+  transitions  StatusTransition[]
+  slaRules     SlaRule[]
+  versions     TicketTypeVersion[]
+  tickets      Ticket[]
+  createdAt    DateTime     @default(now())
+
+  @@unique([departmentId, key])
+}
+
+enum FieldAppliesTo {
+  B2B
+  B2C
+  BOTH
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  NUMBER
+  DATE
+  SELECT
+  MULTISELECT
+  BOOLEAN
+  USER_REF
+  COMPANY_REF
+}
+
+// Authoring/draft table — mutable until a version is published referencing
+// it. A key must never be renamed or retyped once published; only
+// additively extended, or soft-deprecated via isDeprecated.
+model FieldDefinition {
+  id                     String               @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  key                    String
+  label                  String
+  fieldType              FieldType
+  appliesTo              FieldAppliesTo       @default(BOTH)
+  required               Boolean              @default(false)
+  options                Json                 @default("[]") // FieldOption[] when fieldType is SELECT/MULTISELECT
+  order                  Int                  @default(0)
+  isDeprecated           Boolean              @default(false)
+  createdAt              DateTime             @default(now())
+
+  @@unique([ticketTypeDefinitionId, key])
+}
+
+model StatusDefinition {
+  id                     String               @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  key                    String
+  label                  String
+  isInitial              Boolean              @default(false)
+  isTerminal             Boolean              @default(false)
+  order                  Int                  @default(0)
+
+  @@unique([ticketTypeDefinitionId, key])
+}
+
+model StatusTransition {
+  id                     String               @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  fromStatusKey          String
+  toStatusKey            String
+  allowedRoles           String[]             @default([])
+
+  @@unique([ticketTypeDefinitionId, fromStatusKey, toStatusKey])
+}
+
+enum CustomerType {
+  B2B
+  B2C
+}
+
+model SlaRule {
+  id                     String               @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  customerType           CustomerType
+  priority               String // LOW | MEDIUM | HIGH | URGENT
+  responseTimeMinutes    Int
+  resolutionTimeMinutes  Int
+
+  @@unique([ticketTypeDefinitionId, customerType, priority])
+}
+
+enum TicketTypeVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// THE versioning mechanism. Publishing freezes the current
+// fields/statuses/transitions/slaRules as JSON. Every Ticket points at the
+// exact version it was created against, so later edits to the draft tables
+// above never change how an existing ticket renders, validates, or is timed.
+model TicketTypeVersion {
+  id                     String                   @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition     @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  versionNumber          Int
+  status                 TicketTypeVersionStatus  @default(DRAFT)
+  fieldSchemaSnapshot    Json // FieldDefinition[]
+  statusSchemaSnapshot   Json // { statuses: StatusDefinition[], transitions: StatusTransition[] }
+  slaSnapshot            Json // SlaRule[]
+  publishedAt            DateTime?
+  publishedByUserId      String?
+  tickets                Ticket[]
+  createdAt              DateTime                 @default(now())
+
+  @@unique([ticketTypeDefinitionId, versionNumber])
+}
+
+// ── Tickets ──────────────────────────────────────────────────────────────
+
+model Ticket {
+  id                     String               @id @default(cuid())
+  org                    Organization         @relation(fields: [orgId], references: [id])
+  orgId                  String
+  department             Department           @relation(fields: [departmentId], references: [id])
+  departmentId           String
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  ticketTypeVersion      TicketTypeVersion    @relation(fields: [ticketTypeVersionId], references: [id])
+  ticketTypeVersionId    String // frozen at creation — never changes after
+
+  customerType           CustomerType
+  company                Company?             @relation(fields: [companyId], references: [id])
+  companyId              String?
+  customer               Customer             @relation(fields: [customerId], references: [id])
+  customerId             String
+  assignedAgent          User?                @relation("AssignedAgent", fields: [assignedAgentId], references: [id])
+  assignedAgentId        String?
+
+  priority               String // LOW | MEDIUM | HIGH | URGENT
+  statusKey              String
+  subject                String
+  description            String
+  customFields           Json                 @default("{}") // validated against ticketTypeVersion.fieldSchemaSnapshot
+
+  // Computed and stored once at creation from the frozen slaSnapshot —
+  // never recalculated if the live SlaRule changes later.
+  responseDueAt          DateTime?
+  resolutionDueAt        DateTime?
+  firstRespondedAt       DateTime?
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+
+  rowVersion             Int                  @default(0) // optimistic lock on concurrent transitions
+  comments               Comment[]
+  attachments            Attachment[]
+
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+
+  @@index([departmentId, statusKey])
+  @@index([assignedAgentId])
+  @@index([companyId])
+  @@index([customerId])
+}
+
+enum CommentVisibility {
+  INTERNAL
+  PUBLIC
+}
+
+model Comment {
+  id         String            @id @default(cuid())
+  ticket     Ticket            @relation(fields: [ticketId], references: [id])
+  ticketId   String
+  visibility CommentVisibility
+  body       String
+  staffAuthor    User?         @relation(fields: [staffAuthorId], references: [id])
+  staffAuthorId  String?
+  customerAuthor Customer?     @relation(fields: [customerAuthorId], references: [id])
+  customerAuthorId String?
+  attachments Attachment[]
+  createdAt  DateTime          @default(now())
+}
+
+model Attachment {
+  id             String   @id @default(cuid())
+  ticket         Ticket   @relation(fields: [ticketId], references: [id])
+  ticketId       String
+  comment        Comment? @relation(fields: [commentId], references: [id])
+  commentId      String?
+  // storageKey is opaque to the rest of the app — see storage.interface.ts
+  // in the backend, which is what makes local-disk -> S3 later a config
+  // change instead of a rewrite.
+  storageKey     String
+  fileName       String
+  mimeType       String
+  size           Int
+  uploadedByStaffId    String?
+  uploadedByCustomerId String?
+  createdAt      DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  orgId      String
+  actorType  String // STAFF | CUSTOMER | SYSTEM
+  actorUser  User?    @relation(fields: [actorUserId], references: [id])
+  actorUserId String?
+  action     String
+  entityType String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id            String   @id @default(cuid())
+  recipientType String // STAFF | CUSTOMER
+  recipientUser     User?     @relation(fields: [recipientUserId], references: [id])
+  recipientUserId   String?
+  recipientCustomer Customer? @relation(fields: [recipientCustomerId], references: [id])
+  recipientCustomerId String?
+  type          String
+  payload       Json     @default("{}")
+  readAt        DateTime?
+  createdAt     DateTime @default(now())
+}

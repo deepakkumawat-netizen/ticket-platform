@@ -1,0 +1,66 @@
+# Render Blueprint — native Node runtime throughout, NO Docker anywhere.
+# Deploy: push this repo to GitHub, then in the Render dashboard use
+# "New +" -> "Blueprint" and point it at the repo. Render reads this file
+# and provisions everything below in one go.
+#
+# Postgres is deliberately NOT provisioned here — Render's own Postgres has
+# no free tier for new databases. Use a free external Postgres (e.g.
+# Neon.tech), and paste its connection string into DATABASE_URL below via
+# the Render dashboard after the first deploy (it's marked sync: false, so
+# Render will prompt for it instead of guessing a value).
+
+services:
+  # Redis-compatible store for BullMQ (SLA breach checks, notification
+  # dispatch — see backend/src/sla, not yet built). Free tier has no disk
+  # persistence, which is fine for a job queue.
+  - type: keyvalue
+    name: ticketplatform-redis
+    plan: free
+    ipAllowList:
+      - source: 0.0.0.0/0
+
+  - type: web
+    name: ticketplatform-backend
+    runtime: node
+    plan: free
+    buildCommand: >-
+      npm install &&
+      npm run build --workspace packages/shared &&
+      npx prisma generate --schema=backend/prisma/schema.prisma &&
+      npm run build --workspace backend
+    startCommand: >-
+      npx prisma migrate deploy --schema=backend/prisma/schema.prisma &&
+      node backend/dist/src/main.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false # paste your Neon (or other Postgres) connection string here
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ticketplatform-redis
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true # Render generates a strong random secret at deploy time
+      - key: JWT_ACCESS_TTL
+        value: 15m
+
+  - type: web
+    name: ticketplatform-frontend
+    runtime: static
+    buildCommand: >-
+      npm install &&
+      npm run build --workspace packages/shared &&
+      npm run build --workspace frontend
+    staticPublishPath: ./frontend/dist
+    routes:
+      - source: /*
+        destination: /index.html
+        type: rewrite
+    envVars:
+      # Render assigns service URLs as https://<name>.onrender.com UNLESS
+      # "ticketplatform-backend" is already taken globally, in which case it
+      # appends a suffix — after the first deploy, check the backend
+      # service's actual URL in the Render dashboard and update this value
+      # (then redeploy the frontend) if it doesn't match.
+      - key: VITE_API_BASE_URL
+        value: https://ticketplatform-backend.onrender.com
