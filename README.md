@@ -72,20 +72,30 @@ Render's own Postgres has no free tier for new databases, so the database is ext
 3. In the Render dashboard: **New +** → **Blueprint** → select this repo. Render reads
    `render.yaml` and shows you the 2 services it's about to create.
 4. When prompted for `DATABASE_URL`, paste the Neon connection string.
-5. Deploy. The build step compiles both backend and frontend; the start step runs
-   `prisma migrate deploy` against Neon automatically before the server starts — no separate
-   migration step, no separate frontend deploy.
-6. Run the seed script once, from your machine, pointed at the Neon database:
+5. Deploy. The build step compiles both backend and frontend.
+6. Run migrations + seed once, from your machine, pointed at the Neon database (see below for
+   why this can't run as part of the Render deploy itself):
    ```bash
+   DATABASE_URL="<neon connection string>" npx prisma migrate deploy --schema=backend/prisma/schema.prisma
    DATABASE_URL="<neon connection string>" npm run prisma:seed --workspace backend
    ```
-   (On Windows PowerShell: `$env:DATABASE_URL="<neon connection string>"; npm run prisma:seed --workspace backend`)
+   (On Windows PowerShell: `$env:DATABASE_URL="<neon connection string>"; <command>`)
 
-Prefer to set the two services up by hand instead of via Blueprint? Same build/start commands,
-just entered directly in Render's "New Web Service" form:
+**Why migrations run manually, and why the app uses a `pg` driver adapter:** confirmed live —
+Render's network can't route IPv6 to Neon's endpoint. Prisma's default Rust query engine (and
+its separate CLI/migrate engine) resolve and connect to the database themselves, entirely
+bypassing Node's `dns` module, so `NODE_OPTIONS=--dns-result-order=ipv4first` has no effect on
+them and every connection fails with `P1001: Can't reach database server`. The app itself is
+fixed by routing Prisma through the `pg` package instead (`@prisma/adapter-pg`, wired up in
+`backend/src/prisma/prisma.service.ts`) — `pg` uses Node's own `net`/`dns` stack, which *does*
+respect that setting. The CLI's `migrate deploy` isn't affected by that fix (it's a separate
+component), so it has to run from somewhere that can reach Neon directly instead.
+
+Prefer to set this up by hand instead of via Blueprint? Same commands, just entered directly in
+Render's "New Web Service" form:
 - **Build Command**: `npm install && npm run build --workspace packages/shared && npx prisma generate --schema=backend/prisma/schema.prisma && npm run build --workspace backend && npm run build --workspace frontend`
-- **Start Command**: `npx prisma migrate deploy --schema=backend/prisma/schema.prisma && node backend/dist/src/main.js`
-- **Environment Variables**: `DATABASE_URL` (Neon connection string), `JWT_ACCESS_SECRET` (any long random string), `JWT_ACCESS_TTL=15m`
+- **Start Command**: `node backend/dist/src/main.js`
+- **Environment Variables**: `DATABASE_URL` (Neon connection string), `NODE_OPTIONS=--dns-result-order=ipv4first`, `JWT_ACCESS_SECRET` (any long random string), `JWT_ACCESS_TTL=15m`
 
 ## Repo layout
 

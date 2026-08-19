@@ -3,10 +3,15 @@
 // SUPER_ADMIN staff account so `/auth/staff/login` is testable end-to-end.
 // Run with: npm run prisma:seed --workspace backend
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
 import * as argon2 from 'argon2';
 import { AuthMethod, DepartmentKey, StaffRole } from '@ticket-platform/shared';
 
-const prisma = new PrismaClient();
+// See src/prisma/prisma.service.ts for why this goes through the `pg`
+// driver adapter instead of a bare `new PrismaClient()`.
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 async function main() {
   const org = await prisma.organization.upsert({
