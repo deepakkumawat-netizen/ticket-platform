@@ -2,6 +2,10 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { StaffLoginPage } from './features/auth/StaffLoginPage';
 import { PortalLoginPage } from './features/auth/PortalLoginPage';
 import { StaffHomePage } from './features/tickets/StaffHomePage';
+import { TicketListPage } from './features/tickets/TicketListPage';
+import { NewTicketPage } from './features/tickets/NewTicketPage';
+import { TicketDetailPage } from './features/tickets/TicketDetailPage';
+import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
 import { RequireAuth } from './app/RequireAuth';
 import { staffToken, customerToken } from './lib/api';
@@ -17,6 +21,10 @@ export default function App() {
       <Route path="/staff/login" element={<StaffLoginPage />} />
       <Route element={<RequireAuth token={staffToken.get()} redirectTo="/staff/login" />}>
         <Route path="/app" element={<StaffHomePage />} />
+        <Route path="/app/dashboard" element={<DepartmentDashboardPage />} />
+        <Route path="/app/tickets" element={<TicketListPage />} />
+        <Route path="/app/tickets/new" element={<NewTicketPage />} />
+        <Route path="/app/tickets/:id" element={<TicketDetailPage />} />
       </Route>
 
       <Route path="/portal/login" element={<PortalLoginPage />} />

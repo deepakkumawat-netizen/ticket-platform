@@ -23,9 +23,24 @@ Full architecture, data model, and phased roadmap: see the plan this was built f
   (`@Roles`) and department/company/customer scoping helpers (`src/common/scope.ts`)
 - Minimal frontend shell: staff login, customer portal login, guarded route trees
 
-**Not yet built** (see the plan's Phase 0 checklist): the low-code ticket-type/field/status/SLA
-admin UI and publish/versioning flow, ticket CRUD + comments/attachments, the SLA due-date +
-breach-check job, dashboards, notifications, audit log writes.
+Also built since:
+- Ticket CRUD: create (validates `customFields` against the published `TicketTypeVersion`,
+  computes SLA due dates), list/filter, detail, assign, and role-gated status transitions
+  (`src/tickets`)
+- Customer/company quick-create + search, and per-department staff listing for assignment
+  (`src/customers`, `src/users`)
+- Per-department dashboard API + UI: status breakdown, SLA compliance, agent workload, oldest-open
+  aging list (`src/dashboards`, `frontend/src/features/dashboards`)
+- Staff-side ticket UI: new-ticket form (with a `DynamicFormRenderer` for custom fields), ticket
+  list with filters, ticket detail with assign/status actions (`frontend/src/features/tickets`)
+- `prisma/seed.ts` now also activates TECH and publishes one ready-to-use "General Support" ticket
+  type, so the ticket form has something real to submit against without hand-authoring one via curl
+
+**Not yet built**: a UI for the low-code ticket-type/field/status/SLA admin engine itself (it's
+API-only — the seed script provisions one ticket type as a stand-in), comments/attachments, the
+SLA due-date breach-check job, notifications, audit log writes, and the Gemini-powered
+auto-categorize/prioritize + draft-reply + summarize + chatbot pipeline (planned next, in that
+order).
 
 ## Local setup
 

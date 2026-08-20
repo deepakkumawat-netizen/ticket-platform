@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, staffToken } from '../../lib/api';
+import { api, staffToken, staffUser } from '../../lib/api';
 
 export function StaffLoginPage() {
   const [email, setEmail] = useState('');
@@ -12,8 +12,9 @@ export function StaffLoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      const { accessToken } = await api.staffLogin(email, password);
+      const { accessToken, user } = await api.staffLogin(email, password);
       staffToken.set(accessToken);
+      staffUser.set(user);
       navigate('/app');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

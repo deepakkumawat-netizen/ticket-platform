@@ -1,0 +1,223 @@
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { buildCustomFieldsSchema, CustomerType, fieldsForCustomerType, StaffRole } from '@ticket-platform/shared';
+import { PrismaService } from '../prisma/prisma.service';
+import { TicketTypesService } from '../ticket-types/ticket-types.service';
+import { StaffJwtPayload } from '../auth/jwt-payload.interface';
+import { CreateTicketDto } from './dto/create-ticket.dto';
+import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
+
+const TICKET_INCLUDE = {
+  customer: { select: { id: true, name: true, email: true, companyId: true } },
+  company: { select: { id: true, name: true } },
+  assignedAgent: { select: { id: true, name: true } },
+  ticketTypeDefinition: { select: { id: true, name: true } },
+};
+
+type StatusSchemaSnapshot = {
+  statuses: { key: string; label: string; isInitial: boolean; isTerminal: boolean; order: number }[];
+  transitions: { fromStatusKey: string; toStatusKey: string; allowedRoles: string[] }[];
+};
+type SlaSnapshotEntry = { customerType: CustomerType; priority: string; responseTimeMinutes: number; resolutionTimeMinutes: number };
+
+@Injectable()
+export class TicketsService {
+  constructor(
+    private prisma: PrismaService,
+    private ticketTypes: TicketTypesService,
+  ) {}
+
+  // ── Create ────────────────────────────────────────────────────────────
+  // Everything a ticket needs at creation time is derived from ONE frozen
+  // TicketTypeVersion (see ticket-types.service.ts's publish()): which
+  // fields are valid, what the initial status is, and which SLA clock to
+  // start. This is the same snapshot the DynamicFormRenderer fetches, so
+  // "what the form showed" and "what got validated" can never drift apart.
+  async create(staff: StaffJwtPayload, departmentId: string, dto: CreateTicketDto) {
+    const ticketTypeDef = await this.prisma.ticketTypeDefinition.findUnique({
+      where: { id: dto.ticketTypeDefinitionId },
+    });
+    if (!ticketTypeDef || ticketTypeDef.departmentId !== departmentId) {
+      throw new BadRequestException('That ticket type does not belong to this department');
+    }
+
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    const customerType: CustomerType = customer.companyId ? CustomerType.B2B : CustomerType.B2C;
+
+    const version = await this.ticketTypes.getLatestPublishedVersion(dto.ticketTypeDefinitionId);
+
+    const fields = fieldsForCustomerType(version.fieldSchemaSnapshot as any, customerType);
+    const parsedFields = buildCustomFieldsSchema(fields).safeParse(dto.customFields ?? {});
+    if (!parsedFields.success) {
+      throw new BadRequestException(parsedFields.error.flatten());
+    }
+
+    const statusSchema = version.statusSchemaSnapshot as unknown as StatusSchemaSnapshot;
+    const initialStatus = statusSchema.statuses.find((s) => s.isInitial);
+    if (!initialStatus) {
+      // publish() refuses to freeze a version with no initial status, so this
+      // would mean the data got here some other way — fail loudly, not silently.
+      throw new BadRequestException('This ticket type has no initial status configured');
+    }
+
+    if (dto.assignedAgentId) {
+      await this.assertAgentInDepartment(dto.assignedAgentId, departmentId);
+    }
+
+    const slaRules = version.slaSnapshot as unknown as SlaSnapshotEntry[];
+    const slaRule = slaRules.find((r) => r.customerType === customerType && r.priority === dto.priority);
+    const now = new Date();
+    const responseDueAt = slaRule ? new Date(now.getTime() + slaRule.responseTimeMinutes * 60_000) : null;
+    const resolutionDueAt = slaRule ? new Date(now.getTime() + slaRule.resolutionTimeMinutes * 60_000) : null;
+
+    return this.prisma.ticket.create({
+      data: {
+        orgId: staff.orgId,
+        departmentId,
+        ticketTypeDefinitionId: dto.ticketTypeDefinitionId,
+        ticketTypeVersionId: version.id,
+        customerType,
+        companyId: customer.companyId,
+        customerId: customer.id,
+        assignedAgentId: dto.assignedAgentId ?? null,
+        priority: dto.priority,
+        statusKey: initialStatus.key,
+        subject: dto.subject,
+        description: dto.description,
+        customFields: parsedFields.data as Prisma.InputJsonValue,
+        responseDueAt,
+        resolutionDueAt,
+      },
+      include: TICKET_INCLUDE,
+    });
+  }
+
+  // ── List / detail ────────────────────────────────────────────────────
+  // Unpaginated + capped, same v1 scope as every other list endpoint in this
+  // codebase (departments, ticket-types) — fine for a department's queue at
+  // this stage; add real pagination if a department's ticket volume outgrows it.
+  list(departmentId: string, filters: ListTicketsQueryDto) {
+    const where: Prisma.TicketWhereInput = {
+      departmentId,
+      ...(filters.statusKey ? { statusKey: filters.statusKey } : {}),
+      ...(filters.priority ? { priority: filters.priority } : {}),
+      ...(filters.assignedAgentId ? { assignedAgentId: filters.assignedAgentId } : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              { subject: { contains: filters.search, mode: 'insensitive' as const } },
+              { description: { contains: filters.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+    return this.prisma.ticket.findMany({
+      where,
+      include: TICKET_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async getByIdOrThrow(staff: StaffJwtPayload, id: string) {
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id },
+      include: {
+        ...TICKET_INCLUDE,
+        ticketTypeVersion: { select: { statusSchemaSnapshot: true, fieldSchemaSnapshot: true, versionNumber: true } },
+      },
+    });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    return ticket;
+  }
+
+  // ── Assignment ────────────────────────────────────────────────────────
+
+  async assign(staff: StaffJwtPayload, id: string, assignedAgentId: string | null | undefined) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+
+    if (assignedAgentId) {
+      await this.assertAgentInDepartment(assignedAgentId, ticket.departmentId);
+    }
+
+    return this.prisma.ticket.update({
+      where: { id },
+      data: { assignedAgentId: assignedAgentId ?? null, rowVersion: { increment: 1 } },
+      include: TICKET_INCLUDE,
+    });
+  }
+
+  // ── Status transitions ───────────────────────────────────────────────
+  // Every rule here — which moves are even legal, and who's allowed to make
+  // them — comes from the ticket's OWN frozen ticketTypeVersion, never the
+  // live (possibly since-edited) TicketTypeDefinition tables.
+
+  async transition(staff: StaffJwtPayload, id: string, toStatusKey: string) {
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id },
+      include: { ticketTypeVersion: { select: { statusSchemaSnapshot: true } } },
+    });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+
+    const schema = ticket.ticketTypeVersion.statusSchemaSnapshot as unknown as StatusSchemaSnapshot;
+    const move = schema.transitions.find((t) => t.fromStatusKey === ticket.statusKey && t.toStatusKey === toStatusKey);
+    if (!move) {
+      throw new BadRequestException(`No transition from "${ticket.statusKey}" to "${toStatusKey}" is defined`);
+    }
+    if (move.allowedRoles.length > 0 && staff.role !== StaffRole.SUPER_ADMIN && !move.allowedRoles.includes(staff.role)) {
+      throw new ForbiddenException(`Your role can't move a ticket from "${ticket.statusKey}" to "${toStatusKey}"`);
+    }
+
+    const toStatusDef = schema.statuses.find((s) => s.key === toStatusKey);
+    const now = new Date();
+    const data: Prisma.TicketUpdateInput = { statusKey: toStatusKey };
+    if (!ticket.firstRespondedAt) {
+      // Simplification for v1: the first status move a staff member makes
+      // away from the initial status counts as "first response" for the SLA
+      // clock. There's no separate "reply" action yet (comments aren't
+      // built) — see the workflow doc for what's still planned.
+      data.firstRespondedAt = now;
+    }
+    if (toStatusDef?.isTerminal && !ticket.resolvedAt) {
+      // Another v1 simplification: this schema has no distinct "resolved but
+      // not yet closed" concept beyond the isTerminal flag, so reaching any
+      // terminal status stamps both resolvedAt and closedAt together.
+      data.resolvedAt = now;
+      data.closedAt = now;
+    }
+
+    try {
+      return await this.prisma.ticket.update({
+        where: { id, rowVersion: ticket.rowVersion },
+        data: { ...data, rowVersion: { increment: 1 } },
+        include: TICKET_INCLUDE,
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        throw new ConflictException('This ticket was modified by someone else — reload and try again');
+      }
+      throw err;
+    }
+  }
+
+  // ── Shared guards ─────────────────────────────────────────────────────
+
+  private assertStaffCanAccessTicket(staff: StaffJwtPayload, ticketDepartmentId: string) {
+    if (staff.role === StaffRole.SUPER_ADMIN) return;
+    if (staff.departmentId !== ticketDepartmentId) {
+      throw new ForbiddenException("You don't have access to this ticket's department");
+    }
+  }
+
+  private async assertAgentInDepartment(agentId: string, departmentId: string) {
+    const agent = await this.prisma.user.findUnique({ where: { id: agentId } });
+    if (!agent || agent.departmentId !== departmentId) {
+      throw new BadRequestException('That agent is not a member of this department');
+    }
+  }
+}
