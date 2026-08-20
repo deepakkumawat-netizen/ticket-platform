@@ -56,4 +56,8 @@ services:
       - key: JWT_ACCESS_SECRET
         generateValue: true # Render generates a strong random secret at deploy time
       - key: JWT_ACCESS_TTL
-        value: 15m
+        # There's no refresh-token flow yet (see auth.service.ts), so a short
+        # TTL just forces frequent re-logins with no security benefit today.
+        # 8h covers a full working session; tighten this once refresh tokens
+        # exist.
+        value: 8h
