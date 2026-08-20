@@ -463,8 +463,9 @@ body {
 .app-sidebar {
   width: 260px;
   flex: none;
-  background: #1c2434;
-  color: #b8c1d1;
+  background: #e0f2fe;
+  border-right: 1px solid #bae6fd;
+  color: #0c4a6e;
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
@@ -475,7 +476,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 0 8px 28px;
-  color: white;
+  color: #0c4a6e;
   font-weight: 700;
   font-size: 1.05rem;
 }
@@ -505,15 +506,15 @@ body {
   gap: 12px;
   padding: 10px 12px;
   border-radius: 8px;
-  color: #b8c1d1;
+  color: #0369a1;
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
 }
 
 .app-nav-link:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: white;
+  background: rgba(3, 105, 161, 0.1);
+  color: #075985;
 }
 
 .app-nav-link.active {
