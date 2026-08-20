@@ -10,9 +10,20 @@ export class CreateTicketDto {
   @MinLength(1)
   ticketTypeDefinitionId!: string;
 
+  // Exactly one of these two must be given (checked in TicketsService, not
+  // here — class-validator doesn't cleanly express "at least one of").
+  // customerId: an existing external Customer (the original B2B/B2C flow).
+  // requesterUserId: an internal staff member the ticket is raised for —
+  // TicketsService transparently finds-or-creates a Customer row keyed to
+  // their email, so the rest of the ticket model (which always requires a
+  // customerId) doesn't need to change for an internal-helpdesk setup.
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  customerId!: string;
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
+  requesterUserId?: string;
 
   @IsIn(Object.values(Priority))
   priority!: Priority;

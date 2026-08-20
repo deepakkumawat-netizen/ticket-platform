@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { StaffAuthGuard } from '../common/guards/staff-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CurrentStaff } from '../common/decorators/current-principal.decorator';
@@ -18,5 +18,11 @@ export class UsersController {
   list(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
     assertDepartmentAccess(staff, departmentId);
     return this.users.listByDepartment(departmentId);
+  }
+
+  // Org-wide — see UsersService.search for why this isn't department-scoped.
+  @Get('users')
+  search(@CurrentStaff() staff: StaffJwtPayload, @Query('q') query?: string) {
+    return this.users.search(staff.orgId, query);
   }
 }

@@ -41,7 +41,12 @@ export class TicketsService {
       throw new BadRequestException('That ticket type does not belong to this department');
     }
 
-    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
+    if (!dto.customerId && !dto.requesterUserId) {
+      throw new BadRequestException('Choose who this ticket is for');
+    }
+    const customer = dto.requesterUserId
+      ? await this.findOrCreateCustomerForStaff(staff.orgId, dto.requesterUserId)
+      : await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('Customer not found');
     const customerType: CustomerType = customer.companyId ? CustomerType.B2B : CustomerType.B2C;
 
@@ -203,6 +208,26 @@ export class TicketsService {
       }
       throw err;
     }
+  }
+
+  // ── Internal-helpdesk requester mapping ─────────────────────────────
+  // Ticket.customerId is a required FK to Customer no matter who the
+  // ticket is for — rather than migrate that (and everything keyed off
+  // CustomerType: SlaRule, FieldDefinition.appliesTo), an internal request
+  // transparently gets a Customer row of its own, upserted by the
+  // requester's staff email so re-raising for the same colleague reuses it.
+  // Always B2C (companyId null) — there's no "company" concept for an
+  // internal requester.
+  private async findOrCreateCustomerForStaff(orgId: string, requesterUserId: string) {
+    const requester = await this.prisma.user.findUnique({ where: { id: requesterUserId } });
+    if (!requester || requester.orgId !== orgId) {
+      throw new NotFoundException('Requester not found');
+    }
+    return this.prisma.customer.upsert({
+      where: { email: requester.email },
+      update: {},
+      create: { orgId, name: requester.name, email: requester.email },
+    });
   }
 
   // ── Shared guards ─────────────────────────────────────────────────────

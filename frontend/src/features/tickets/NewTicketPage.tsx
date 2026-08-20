@@ -4,15 +4,24 @@ import {
   api,
   staffToken,
   staffUser,
-  CustomerRecord,
   Department,
   FieldDefinition,
   StaffMember,
+  StaffSearchResult,
   TicketTypeSummary,
 } from '../../lib/api';
 import { DynamicFormRenderer } from '../../components/DynamicFormRenderer';
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
+
+// Who a ticket is raised for. 'staff' is the normal internal-helpdesk case —
+// picked from the org's own staff list, no external Customer ever entered by
+// hand. 'external' is the fallback for someone not in that list (or a real
+// external customer, if this deployment ever needs that) — it still goes
+// through the Customer API, just without exposing "Customer" as a concept.
+type Requester =
+  | { kind: 'staff'; id: string; name: string; email: string }
+  | { kind: 'external'; id: string; name: string; email: string; company: { id: string; name: string } | null };
 
 export function NewTicketPage() {
   const navigate = useNavigate();
@@ -31,14 +40,12 @@ export function NewTicketPage() {
   const [customFields, setCustomFields] = useState<FieldDefinition[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
-  const [customerQuery, setCustomerQuery] = useState('');
-  const [customerResults, setCustomerResults] = useState<CustomerRecord[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(null);
-  const [showNewCustomer, setShowNewCustomer] = useState(false);
-  const [newCustomerName, setNewCustomerName] = useState('');
-  const [newCustomerEmail, setNewCustomerEmail] = useState('');
-  const [newCustomerPhone, setNewCustomerPhone] = useState('');
-  const [newCustomerCompany, setNewCustomerCompany] = useState('');
+  const [requesterQuery, setRequesterQuery] = useState('');
+  const [staffResults, setStaffResults] = useState<StaffSearchResult[]>([]);
+  const [selectedRequester, setSelectedRequester] = useState<Requester | null>(null);
+  const [showNewRequester, setShowNewRequester] = useState(false);
+  const [newRequesterName, setNewRequesterName] = useState('');
+  const [newRequesterEmail, setNewRequesterEmail] = useState('');
 
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
@@ -68,15 +75,16 @@ export function NewTicketPage() {
     api.listDepartmentUsers(departmentId, token).catch(() => []).then((members) => setStaffMembers(members ?? []));
   }, [departmentId, token]);
 
-  // Once a ticket type AND a customer are both chosen, fetch the frozen
-  // field schema for this customer's type (B2B/B2C) so the form matches
-  // exactly what the backend will validate against.
+  // Once a ticket type AND a requester are both chosen, fetch the frozen
+  // field schema for this requester's customer type (B2B/B2C) so the form
+  // matches exactly what the backend will validate against. Staff
+  // requesters are always B2C — there's no "company" concept internally.
   useEffect(() => {
     setPublishedVersion(null);
     setNoPublishedVersion(false);
     setCustomFields([]);
     setCustomFieldValues({});
-    if (!ticketTypeId || !selectedCustomer) return;
+    if (!ticketTypeId || !selectedRequester) return;
 
     api
       .getTicketTypeDefinition(ticketTypeId, token)
@@ -87,32 +95,29 @@ export function NewTicketPage() {
           return;
         }
         setPublishedVersion(latestPublished.versionNumber);
-        const customerType = selectedCustomer.company ? 'B2B' : 'B2C';
+        const customerType = selectedRequester.kind === 'external' && selectedRequester.company ? 'B2B' : 'B2C';
         api
           .getTicketTypeVersion(ticketTypeId, latestPublished.versionNumber, customerType, token)
           .then((v) => setCustomFields(v.fields))
           .catch((err) => setError(err instanceof Error ? err.message : 'Could not load this ticket type\'s form'));
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load this ticket type'));
-  }, [ticketTypeId, selectedCustomer, token]);
+  }, [ticketTypeId, selectedRequester, token]);
 
-  async function onSearchCustomers(q: string) {
-    setCustomerQuery(q);
+  async function onSearchRequesters(q: string) {
+    setRequesterQuery(q);
     if (q.trim().length < 2) {
-      setCustomerResults([]);
+      setStaffResults([]);
       return;
     }
-    setCustomerResults(await api.searchCustomers(q, token));
+    setStaffResults(await api.searchStaff(q, token));
   }
 
-  async function onCreateCustomer(e: FormEvent) {
+  async function onCreateExternalRequester(e: FormEvent) {
     e.preventDefault();
-    const created = await api.createCustomer(
-      { name: newCustomerName, email: newCustomerEmail, phone: newCustomerPhone || undefined, companyName: newCustomerCompany || undefined },
-      token,
-    );
-    setSelectedCustomer(created);
-    setShowNewCustomer(false);
+    const created = await api.createCustomer({ name: newRequesterName, email: newRequesterEmail }, token);
+    setSelectedRequester({ kind: 'external', id: created.id, name: created.name, email: created.email, company: created.company });
+    setShowNewRequester(false);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -124,7 +129,7 @@ export function NewTicketPage() {
     // "broken", not "incomplete".
     if (!departmentId) return setError('Select a department first');
     if (!ticketTypeId) return setError('Select a ticket type first');
-    if (!selectedCustomer) return setError('Choose or create a customer first');
+    if (!selectedRequester) return setError('Choose who this ticket is for');
     if (noPublishedVersion) return setError('This ticket type has no published version yet — ask a Dept Admin to publish it first');
     if (publishedVersion === null) return setError('Still loading this ticket type\'s form — wait a moment and try again');
     if (!subject.trim()) return setError('Enter a subject');
@@ -136,7 +141,9 @@ export function NewTicketPage() {
         departmentId,
         {
           ticketTypeDefinitionId: ticketTypeId,
-          customerId: selectedCustomer.id,
+          ...(selectedRequester.kind === 'staff'
+            ? { requesterUserId: selectedRequester.id }
+            : { customerId: selectedRequester.id }),
           priority,
           subject,
           description,
@@ -190,32 +197,25 @@ export function NewTicketPage() {
         )}
 
         <fieldset className="customer-picker">
-          <legend>Customer</legend>
-          {selectedCustomer ? (
+          <legend>Who is this for?</legend>
+          {selectedRequester ? (
             <div className="selected-customer">
               <span>
-                <strong>{selectedCustomer.name}</strong> ({selectedCustomer.email})
-                {selectedCustomer.company && ` — ${selectedCustomer.company.name}`}
+                <strong>{selectedRequester.name}</strong> ({selectedRequester.email})
               </span>
-              <button type="button" onClick={() => setSelectedCustomer(null)}>
+              <button type="button" onClick={() => setSelectedRequester(null)}>
                 Change
               </button>
             </div>
-          ) : showNewCustomer ? (
+          ) : showNewRequester ? (
             <div className="new-customer-form">
-              <input placeholder="Name" value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} required />
-              <input placeholder="Email" type="email" value={newCustomerEmail} onChange={(e) => setNewCustomerEmail(e.target.value)} required />
-              <input placeholder="Phone (optional)" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} />
-              <input
-                placeholder="Company (optional — leave blank for a B2C customer)"
-                value={newCustomerCompany}
-                onChange={(e) => setNewCustomerCompany(e.target.value)}
-              />
+              <input placeholder="Name" value={newRequesterName} onChange={(e) => setNewRequesterName(e.target.value)} required />
+              <input placeholder="Email" type="email" value={newRequesterEmail} onChange={(e) => setNewRequesterEmail(e.target.value)} required />
               <div className="row-actions">
-                <button type="button" onClick={onCreateCustomer}>
-                  Create customer
+                <button type="button" onClick={onCreateExternalRequester}>
+                  Add
                 </button>
-                <button type="button" onClick={() => setShowNewCustomer(false)}>
+                <button type="button" onClick={() => setShowNewRequester(false)}>
                   Cancel
                 </button>
               </div>
@@ -223,23 +223,23 @@ export function NewTicketPage() {
           ) : (
             <div className="customer-search">
               <input
-                placeholder="Search by name or email…"
-                value={customerQuery}
-                onChange={(e) => onSearchCustomers(e.target.value)}
+                placeholder="Search your team by name or email…"
+                value={requesterQuery}
+                onChange={(e) => onSearchRequesters(e.target.value)}
               />
-              {customerResults.length > 0 && (
+              {staffResults.length > 0 && (
                 <ul className="customer-results">
-                  {customerResults.map((c) => (
-                    <li key={c.id}>
-                      <button type="button" onClick={() => setSelectedCustomer(c)}>
-                        {c.name} ({c.email}) {c.company && `— ${c.company.name}`}
+                  {staffResults.map((s) => (
+                    <li key={s.id}>
+                      <button type="button" onClick={() => setSelectedRequester({ kind: 'staff', id: s.id, name: s.name, email: s.email })}>
+                        {s.name} ({s.email})
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
-              <button type="button" onClick={() => setShowNewCustomer(true)}>
-                + New customer
+              <button type="button" onClick={() => setShowNewRequester(true)}>
+                + Someone not on this list
               </button>
             </div>
           )}

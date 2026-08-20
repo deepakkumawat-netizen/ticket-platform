@@ -85,6 +85,7 @@ export type TicketTypeDefinitionDetail = {
 
 export type CustomerRecord = { id: string; name: string; email: string; phone: string | null; company: { id: string; name: string } | null };
 export type StaffMember = { id: string; name: string; email: string; role: string };
+export type StaffSearchResult = { id: string; name: string; email: string; role: string; departmentId: string | null };
 
 export type TicketSummary = {
   id: string;
@@ -140,6 +141,8 @@ export const api = {
 
   listDepartmentUsers: (departmentId: string, token: string | null) =>
     request<StaffMember[]>(`/departments/${departmentId}/users`, { token }),
+  searchStaff: (q: string, token: string | null) =>
+    request<StaffSearchResult[]>(`/users${q ? `?q=${encodeURIComponent(q)}` : ''}`, { token }),
 
   searchCustomers: (q: string, token: string | null) =>
     request<CustomerRecord[]>(`/customers${q ? `?q=${encodeURIComponent(q)}` : ''}`, { token }),
@@ -152,7 +155,8 @@ export const api = {
     departmentId: string,
     dto: {
       ticketTypeDefinitionId: string;
-      customerId: string;
+      customerId?: string;
+      requesterUserId?: string;
       priority: string;
       subject: string;
       description: string;
