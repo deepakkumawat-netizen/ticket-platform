@@ -47,6 +47,187 @@ body {
   font-size: 14px;
 }
 
+/* ── Staff auth (login/signup) — two-panel shell ─────────────────────
+   Branding panel echoes the sidebar's sky-blue + indigo palette so the
+   very first screen already looks like the same product as the dashboard. */
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.auth-branding {
+  background: linear-gradient(160deg, #0c4a6e 0%, #4338ca 100%);
+  color: white;
+  padding: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 28px;
+}
+
+.auth-brand-mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.auth-brand-logo {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.auth-branding h1 {
+  font-size: 2.1rem;
+  line-height: 1.15;
+  margin: 0;
+  max-width: 420px;
+  text-wrap: balance;
+}
+
+.auth-feature-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14.5px;
+  color: #e0e7ff;
+}
+
+.auth-feature-list li {
+  padding-left: 22px;
+  position: relative;
+}
+
+.auth-feature-list li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: #93c5fd;
+  font-weight: 700;
+}
+
+.auth-form-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: #f8fafc;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 12px 32px -16px rgba(16, 24, 40, 0.15);
+  padding: 36px;
+}
+
+.auth-card h2 {
+  margin: 0 0 6px;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.auth-subtitle {
+  margin: 0 0 24px;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.auth-form input {
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.auth-form input:focus {
+  outline: 2px solid #4f46e5;
+  outline-offset: 1px;
+  border-color: #4f46e5;
+}
+
+.auth-form button {
+  padding: 11px;
+  border: none;
+  border-radius: 8px;
+  background: #4f46e5;
+  color: white;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14.5px;
+  margin-top: 4px;
+}
+
+.auth-form button:hover {
+  background: #4338ca;
+}
+
+.auth-form button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.auth-switch {
+  margin: 20px 0 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: #64748b;
+}
+
+.auth-switch a {
+  color: #4f46e5;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-switch a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 860px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+  }
+  .auth-branding {
+    padding: 40px 32px;
+  }
+  .auth-branding h1 {
+    font-size: 1.6rem;
+  }
+}
+
 /* ── Shared page shell ─────────────────────────────────────────────── */
 
 .page-shell {

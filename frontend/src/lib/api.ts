@@ -132,6 +132,13 @@ export const api = {
       '/auth/staff/login',
       { method: 'POST', body: JSON.stringify({ email, password }) },
     ),
+  // EMPLOYEE only — see auth.service.ts's signupEmployee for why this is
+  // safe to leave unauthenticated.
+  staffSignup: (name: string, email: string, password: string) =>
+    request<{ accessToken: string; user: { id: string; email: string; name: string; role: string; departmentId: string | null } }>(
+      '/auth/staff/signup',
+      { method: 'POST', body: JSON.stringify({ name, email, password }) },
+    ),
   portalLogin: (email: string, password: string) =>
     request<{ accessToken: string; customer: { id: string; name: string } }>('/auth/portal/login', {
       method: 'POST',

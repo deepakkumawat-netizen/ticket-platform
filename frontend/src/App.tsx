@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { StaffLoginPage } from './features/auth/StaffLoginPage';
+import { StaffSignupPage } from './features/auth/StaffSignupPage';
 import { PortalLoginPage } from './features/auth/PortalLoginPage';
 import { TicketListPage } from './features/tickets/TicketListPage';
 import { NewTicketPage } from './features/tickets/NewTicketPage';
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/staff/login" replace />} />
 
       <Route path="/staff/login" element={<StaffLoginPage />} />
+      <Route path="/staff/signup" element={<StaffSignupPage />} />
       <Route element={<RequireAuth token={staffToken.get()} redirectTo="/staff/login" />}>
         <Route element={<StaffLayout />}>
           <Route path="/app" element={<AppIndex />} />
