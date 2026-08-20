@@ -2,12 +2,9 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 // Thin wrapper over the Gemini REST API — plain fetch, no SDK dependency.
-// Verified directly against https://ai.google.dev/api/generate-content
-// (2026-08-20) rather than assumed from training data, since this API
-// surface has moved fast (the SDK itself now also exposes a newer
-// `interactions.create` shape) — this raw endpoint is the stable part.
-// UNTESTED against a live key as of writing (none was available yet) — if
-// the exact request/response shape has drifted, this is the one file to fix.
+// Request/response shape live-verified against a real key on 2026-08-20
+// (both plain text and responseSchema/JSON mode) — see the retry comment
+// below for the one wrinkle that showed up doing that.
 @Injectable()
 export class GeminiService {
   constructor(private config: ConfigService) {}
@@ -19,27 +16,37 @@ export class GeminiService {
   }
 
   private get model(): string {
-    // Override via GEMINI_MODEL if this default is ever wrong/retired —
-    // see the comment above about how fast this API has been moving.
+    // Override via GEMINI_MODEL if this default is ever wrong/retired.
     return this.config.get<string>('GEMINI_MODEL') ?? 'gemini-3.7-flash';
   }
 
   private async request(prompt: string, responseSchema?: object): Promise<string> {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        ...(responseSchema ? { generationConfig: { responseMimeType: 'application/json', responseSchema } } : {}),
-      }),
-    });
-    if (!res.ok) {
-      throw new BadRequestException(`Gemini request failed (${res.status}): ${await res.text()}`);
+    // Live testing hit "503 high demand" on the model's first call both
+    // times, succeeding immediately on retry — a transient capacity blip,
+    // not a real failure. One retry with a short backoff turns that from a
+    // user-visible error into nothing they ever notice.
+    let lastError: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          ...(responseSchema ? { generationConfig: { responseMimeType: 'application/json', responseSchema } } : {}),
+        }),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof text !== 'string') throw new BadRequestException('Gemini returned no usable content');
+        return text;
+      }
+      lastError = `Gemini request failed (${res.status}): ${await res.text()}`;
+      if (res.status !== 503) break; // only retry the transient case
     }
-    const body = await res.json();
-    const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== 'string') throw new BadRequestException('Gemini returned no usable content');
-    return text;
+    throw new BadRequestException(lastError ?? 'Gemini request failed');
   }
 
   /** Plain-text generation — used for drafts/summaries where the shape is just prose. */
