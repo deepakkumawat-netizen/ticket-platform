@@ -1,9 +1,14 @@
 # Ticket Platform
 
-Internal low-code ticket management system. Departments (Tech → Operations → Content → Sales)
-onboard onto one generic engine by *configuring* ticket types/fields/statuses/SLAs through an
-admin UI — not by writing new backend code per department. Serves two audiences: internal staff
-(Super Admin / Dept Admin / Agent) and external B2B/B2C customers via a separate portal login.
+Internal low-code helpdesk. Departments (Tech → Operations → Content → Sales) onboard onto one
+generic engine by *configuring* ticket types/fields/statuses/SLAs — not by writing new backend
+code per department. Built for an internal team: any employee (role `EMPLOYEE`) raises their own
+tickets and tracks them via `/my-tickets`; support staff (`SUPER_ADMIN`/`DEPT_ADMIN`/`AGENT`) work
+the department queue. The `Customer`/B2B-B2C data model from the original design is still there
+under the hood (kept to avoid a schema migration) but is no longer user-facing — see
+`findOrCreateCustomerForStaff` in `tickets.service.ts` for how an internal requester maps onto it
+transparently. The `/portal/*` customer-facing login still exists in code but isn't part of the
+current workflow.
 
 Full architecture, data model, and phased roadmap: see the plan this was built from
 (`stop-working-on-this-typed-rainbow.md`) — summarized here for quick reference.
@@ -32,15 +37,28 @@ Also built since:
 - Per-department dashboard API + UI: status breakdown, SLA compliance, agent workload, oldest-open
   aging list (`src/dashboards`, `frontend/src/features/dashboards`)
 - Staff-side ticket UI: new-ticket form (with a `DynamicFormRenderer` for custom fields), ticket
-  list with filters, ticket detail with assign/status actions (`frontend/src/features/tickets`)
-- `prisma/seed.ts` now also activates TECH and publishes one ready-to-use "General Support" ticket
-  type, so the ticket form has something real to submit against without hand-authoring one via curl
+  list with filters, ticket detail with assign/status actions (`frontend/src/features/tickets`),
+  now inside a shared admin-dashboard shell (`frontend/src/app/StaffLayout.tsx`)
+- Self-service: role `EMPLOYEE` (never department-scoped, like `SUPER_ADMIN`) raises and reads only
+  its own tickets via `POST/GET /my-tickets(/:id)` — scoped by "am I the requester", not
+  `departmentId`. `POST /users` (SUPER_ADMIN only) is the only way a login gets created (no
+  self-signup, no email delivery — the generated password is returned once in the response)
+- Human-facing sequential ticket IDs (`Ticket.ticketNumber`, a plain Postgres sequence), rendered
+  as `{departmentKey}-{ticketNumber}` (e.g. "TECH-42") everywhere a ticket is shown
+- AI (Gemini, human-in-the-loop, `src/ai`) — **untested against a live key as of this writing**,
+  built against the REST API's documented shape but no `GEMINI_API_KEY` was available to verify
+  against: triage (suggests ticket type + priority on the new-ticket form), draft-reply (suggests
+  text on the ticket detail page — there's no comment feature yet to send it into, so it's
+  copy/paste for now), and dashboard insights (a plain-English "what needs attention" summary,
+  generated on demand, not automatically)
+- `prisma/seed.ts` now also activates TECH, publishes one ready-to-use "General Support" ticket
+  type, and seeds a sample `EMPLOYEE` login, so the app has something real to use immediately
 
 **Not yet built**: a UI for the low-code ticket-type/field/status/SLA admin engine itself (it's
-API-only — the seed script provisions one ticket type as a stand-in), comments/attachments, the
-SLA due-date breach-check job, notifications, audit log writes, and the Gemini-powered
-auto-categorize/prioritize + draft-reply + summarize + chatbot pipeline (planned next, in that
-order).
+API-only — the seed script provisions one ticket type as a stand-in), comments/attachments (which
+is also why draft-reply has nowhere to send into yet), the SLA due-date breach-check job,
+notifications, audit log writes, and the AI chatbot (the last of the 4 originally-scoped AI
+features).
 
 ## Local setup
 

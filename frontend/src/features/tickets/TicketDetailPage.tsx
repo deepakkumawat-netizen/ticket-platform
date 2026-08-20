@@ -10,6 +10,8 @@ export function TicketDetailPage() {
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -48,6 +50,23 @@ export function TicketDetailPage() {
       setTicket(await api.transitionTicket(ticket.id, toStatusKey, token));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change status');
+    }
+  }
+
+  // There's no comment/reply feature yet to send this into (see the
+  // workflow doc) — this just gives the agent text to copy into an email
+  // or chat and edit as needed.
+  async function onDraftReply() {
+    if (!ticket) return;
+    setDrafting(true);
+    setError(null);
+    try {
+      const { draft } = await api.draftReply(ticket.id, token);
+      setDraft(draft);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not draft a reply');
+    } finally {
+      setDrafting(false);
     }
   }
 
@@ -92,6 +111,18 @@ export function TicketDetailPage() {
       <section className="ticket-description">
         <h2>Description</h2>
         <p>{ticket.description}</p>
+      </section>
+
+      <section className="ai-draft-section">
+        <button type="button" onClick={onDraftReply} disabled={drafting}>
+          ✨ {drafting ? 'Drafting…' : 'Draft a reply with AI'}
+        </button>
+        {draft && (
+          <div className="ai-draft-box">
+            <p className="dash-subtitle">Suggested reply — copy and edit as needed, there's no send-from-here yet:</p>
+            <textarea readOnly value={draft} rows={6} />
+          </div>
+        )}
       </section>
 
       {Object.keys(ticket.customFields).length > 0 && (

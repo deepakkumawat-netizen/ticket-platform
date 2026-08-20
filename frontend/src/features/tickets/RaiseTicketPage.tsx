@@ -30,6 +30,9 @@ export function RaiseTicketPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiReasoning, setAiReasoning] = useState<string | null>(null);
+
   useEffect(() => {
     api
       .listDepartments(token)
@@ -71,6 +74,25 @@ export function RaiseTicketPage() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load this ticket type'));
   }, [ticketTypeId, token]);
+
+  async function onSuggestWithAi() {
+    if (!departmentId || !subject.trim() || !description.trim()) {
+      setError('Pick a department and fill in the subject/description first');
+      return;
+    }
+    setAiSuggesting(true);
+    setError(null);
+    try {
+      const result = await api.triage(departmentId, subject, description, token);
+      setTicketTypeId(result.ticketTypeId);
+      setPriority(result.priority);
+      setAiReasoning(result.reasoning);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI suggestion failed');
+    } finally {
+      setAiSuggesting(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -143,6 +165,16 @@ export function RaiseTicketPage() {
           Description
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} required />
         </label>
+
+        {departmentId && (
+          <div className="ai-suggest-row">
+            <button type="button" onClick={onSuggestWithAi} disabled={aiSuggesting}>
+              ✨ {aiSuggesting ? 'Thinking…' : "Not sure what type? Let AI suggest"}
+            </button>
+            {aiReasoning && <p className="ai-reasoning">{aiReasoning}</p>}
+          </div>
+        )}
+
         <label>
           Priority
           <select value={priority} onChange={(e) => setPriority(e.target.value)}>

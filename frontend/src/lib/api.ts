@@ -208,6 +208,18 @@ export const api = {
   listMyTickets: (token: string | null) => request<TicketSummary[]>('/my-tickets', { token }),
   getMyTicket: (id: string, token: string | null) => request<TicketDetail>(`/my-tickets/${id}`, { token }),
 
+  // ── AI (Gemini-powered, human-in-the-loop — see backend/src/ai) ─────
+  triage: (departmentId: string, subject: string, description: string, token: string | null) =>
+    request<{ ticketTypeId: string; priority: string; reasoning: string }>(`/departments/${departmentId}/ai/triage`, {
+      method: 'POST',
+      body: JSON.stringify({ subject, description }),
+      token,
+    }),
+  draftReply: (ticketId: string, token: string | null) =>
+    request<{ draft: string }>(`/tickets/${ticketId}/ai/draft-reply`, { method: 'POST', token }),
+  getDashboardInsights: (departmentId: string, token: string | null) =>
+    request<{ summary: string }>(`/departments/${departmentId}/ai/insights`, { token }),
+
   // ── Admin: onboarding logins (SUPER_ADMIN only) ─────────────────────
   createUser: (
     dto: { email: string; name: string; role: string; departmentId?: string; password?: string },

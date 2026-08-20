@@ -1,0 +1,38 @@
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { StaffRole } from '@ticket-platform/shared';
+import { StaffAuthGuard } from '../common/guards/staff-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { CurrentStaff } from '../common/decorators/current-principal.decorator';
+import { assertDepartmentAccess } from '../common/scope';
+import { StaffJwtPayload } from '../auth/jwt-payload.interface';
+import { AiService } from './ai.service';
+import { TriageDto } from './dto/triage.dto';
+
+// Every route here only ever SUGGESTS — see ai.service.ts's comments. None
+// of these write to a ticket; the caller (NewTicketPage/RaiseTicketPage/
+// TicketDetailPage) decides what to do with the suggestion.
+@UseGuards(StaffAuthGuard, RolesGuard)
+@Controller()
+export class AiController {
+  constructor(private ai: AiService) {}
+
+  @Post('departments/:departmentId/ai/triage')
+  triage(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string, @Body() dto: TriageDto) {
+    // EMPLOYEE isn't pinned to a department (same reasoning as the
+    // ticket-types list route) — they need to triage against any live
+    // department they're raising a self-service ticket to.
+    if (staff.role !== StaffRole.EMPLOYEE) assertDepartmentAccess(staff, departmentId);
+    return this.ai.triage(departmentId, dto.subject, dto.description);
+  }
+
+  @Post('tickets/:id/ai/draft-reply')
+  draftReply(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.ai.draftReply(staff, id);
+  }
+
+  @Get('departments/:departmentId/ai/insights')
+  insights(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
+    assertDepartmentAccess(staff, departmentId);
+    return this.ai.insights(departmentId);
+  }
+}

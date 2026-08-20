@@ -12,6 +12,7 @@ import { UsersModule } from './users/users.module';
 import { CustomersModule } from './customers/customers.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -35,9 +36,10 @@ import { DashboardsModule } from './dashboards/dashboards.module';
     CustomersModule, // customer/company search + quick-create for ticket intake
     TicketsModule, // ticket create/list/detail/assign/status-transition
     DashboardsModule, // per-department aggregate view (status/SLA/workload/aging)
+    AiModule, // Gemini-powered triage/draft-reply/dashboard-insights — needs GEMINI_API_KEY set to actually work
     // Next up (Phase 0 continuation): SlaModule (breach-check job),
-    // NotificationsModule, Comments/Attachments, the Gemini-powered
-    // auto-categorize/prioritize + draft-reply + summarize + chatbot pipeline.
+    // NotificationsModule, Comments/Attachments, the AI chatbot (last of the
+    // 4 AI features originally scoped).
   ],
   controllers: [AppController],
 })

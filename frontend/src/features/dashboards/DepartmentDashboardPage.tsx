@@ -17,6 +17,8 @@ export function DepartmentDashboardPage() {
   const [departmentId, setDepartmentId] = useState(me?.departmentId ?? '');
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [insights, setInsights] = useState<string | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -35,11 +37,28 @@ export function DepartmentDashboardPage() {
   useEffect(() => {
     if (!departmentId) return;
     setError(null);
+    setInsights(null); // stale insight from a different department would be misleading
     api
       .getDashboard(departmentId, token)
       .then(setData)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load the dashboard'));
   }, [departmentId, token]);
+
+  // Explicit button rather than auto-fetch — an AI call on every dashboard
+  // load would be slow and costly for a summary that doesn't change that fast.
+  async function onGenerateInsights() {
+    if (!departmentId) return;
+    setInsightsLoading(true);
+    setError(null);
+    try {
+      const { summary } = await api.getDashboardInsights(departmentId, token);
+      setInsights(summary);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate insights');
+    } finally {
+      setInsightsLoading(false);
+    }
+  }
 
   const maxStatusCount = data ? Math.max(1, ...data.statusCounts.map((s) => s.count)) : 1;
   const maxWorkload = data ? Math.max(1, ...data.agentWorkload.map((w) => w.openCount)) : 1;
@@ -78,6 +97,16 @@ export function DepartmentDashboardPage() {
             <StatCard icon={<ClockIcon />} tone="warn" value={data.slaSummary.responseBreached} label="Response SLA breached" />
             <StatCard icon={<AlertIcon />} tone="danger" value={data.slaSummary.resolutionBreached} label="Resolution SLA breached" />
           </div>
+
+          <section className="dash-card ai-insights-card">
+            <div className="page-header">
+              <h2>✨ AI Insights</h2>
+              <button type="button" onClick={onGenerateInsights} disabled={insightsLoading}>
+                {insightsLoading ? 'Thinking…' : insights ? 'Regenerate' : 'Generate'}
+              </button>
+            </div>
+            {insights ? <p>{insights}</p> : <p className="dash-subtitle">Ask AI to summarize what needs attention right now.</p>}
+          </section>
 
           <div className="dash-grid">
             <section className="dash-card">

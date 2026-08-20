@@ -752,3 +752,70 @@ body {
   display: inline-block;
   letter-spacing: 0.02em;
 }
+
+/* ── AI features (triage suggestion, draft reply, dashboard insights) ─── */
+
+.ai-suggest-row,
+.ai-draft-section {
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-suggest-row button,
+.ai-draft-section > button,
+.ai-insights-card button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  background: white;
+  color: #6d28d9;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-suggest-row button:hover,
+.ai-draft-section > button:hover,
+.ai-insights-card button:hover {
+  background: #f5f3ff;
+}
+
+.ai-reasoning {
+  margin: 0;
+  font-size: 13px;
+  color: #6d28d9;
+  font-style: italic;
+}
+
+.ai-draft-box textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.ai-insights-card {
+  border-left: 4px solid #7c3aed;
+}
+
+.ai-insights-card .page-header {
+  margin-bottom: 10px;
+}
+
+.ai-insights-card h2 {
+  margin: 0;
+}
+
+.ai-insights-card p {
+  margin: 0;
+  font-size: 14px;
+  color: #334155;
+}

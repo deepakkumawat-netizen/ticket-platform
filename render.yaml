@@ -61,3 +61,7 @@ services:
         # 8h covers a full working session; tighten this once refresh tokens
         # exist.
         value: 8h
+      - key: GEMINI_API_KEY
+        sync: false # paste a key from aistudio.google.com/apikey — AI features (backend/src/ai) 400 with a clear message until this is set
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash # override here if this default is ever wrong/retired — see gemini.service.ts

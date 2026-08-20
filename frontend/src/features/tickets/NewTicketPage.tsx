@@ -55,6 +55,9 @@ export function NewTicketPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [aiReasoning, setAiReasoning] = useState<string | null>(null);
+
   // SUPER_ADMIN can raise a ticket in any live department; everyone else is
   // fixed to their own — mirrors assertDepartmentAccess on the backend.
   useEffect(() => {
@@ -118,6 +121,28 @@ export function NewTicketPage() {
     const created = await api.createCustomer({ name: newRequesterName, email: newRequesterEmail }, token);
     setSelectedRequester({ kind: 'external', id: created.id, name: created.name, email: created.email, company: created.company });
     setShowNewRequester(false);
+  }
+
+  // Human-in-the-loop: fills ticketTypeId + priority as a starting point,
+  // never submits anything itself — the picker below still shows whatever
+  // it lands on so it can be overridden before Create ticket is clicked.
+  async function onSuggestWithAi() {
+    if (!departmentId || !subject.trim() || !description.trim()) {
+      setError('Fill in the department, subject, and description first');
+      return;
+    }
+    setAiSuggesting(true);
+    setError(null);
+    try {
+      const result = await api.triage(departmentId, subject, description, token);
+      setTicketTypeId(result.ticketTypeId);
+      setPriority(result.priority);
+      setAiReasoning(result.reasoning);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'AI suggestion failed');
+    } finally {
+      setAiSuggesting(false);
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -257,6 +282,14 @@ export function NewTicketPage() {
           Description
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} required />
         </label>
+
+        <div className="ai-suggest-row">
+          <button type="button" onClick={onSuggestWithAi} disabled={aiSuggesting}>
+            ✨ {aiSuggesting ? 'Thinking…' : 'Suggest ticket type & priority'}
+          </button>
+          {aiReasoning && <p className="ai-reasoning">{aiReasoning}</p>}
+        </div>
+
         <label>
           Priority
           <select value={priority} onChange={(e) => setPriority(e.target.value)}>
