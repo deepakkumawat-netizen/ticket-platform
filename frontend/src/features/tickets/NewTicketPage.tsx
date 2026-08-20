@@ -107,10 +107,18 @@ export function NewTicketPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
-    if (!selectedCustomer) {
-      setError('Choose or create a customer first');
-      return;
-    }
+
+    // Validate on click with a specific message instead of silently
+    // disabling the button — a disabled button with no explanation reads as
+    // "broken", not "incomplete".
+    if (!departmentId) return setError('Select a department first');
+    if (!ticketTypeId) return setError('Select a ticket type first');
+    if (!selectedCustomer) return setError('Choose or create a customer first');
+    if (noPublishedVersion) return setError('This ticket type has no published version yet — ask a Dept Admin to publish it first');
+    if (publishedVersion === null) return setError('Still loading this ticket type\'s form — wait a moment and try again');
+    if (!subject.trim()) return setError('Enter a subject');
+    if (!description.trim()) return setError('Enter a description');
+
     setSubmitting(true);
     try {
       const ticket = await api.createTicket(
@@ -133,8 +141,6 @@ export function NewTicketPage() {
       setSubmitting(false);
     }
   }
-
-  const canSubmit = departmentId && ticketTypeId && selectedCustomer && subject && description && publishedVersion !== null;
 
   return (
     <div className="page-shell">
@@ -272,7 +278,7 @@ export function NewTicketPage() {
         )}
 
         {error && <p className="error">{error}</p>}
-        <button type="submit" disabled={!canSubmit || submitting}>
+        <button type="submit" disabled={submitting}>
           {submitting ? 'Creating…' : 'Create ticket'}
         </button>
       </form>
