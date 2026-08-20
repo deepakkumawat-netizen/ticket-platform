@@ -9,22 +9,32 @@ export function DepartmentDashboardPage() {
   const isSuperAdmin = me?.role === 'SUPER_ADMIN';
 
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [departmentsLoaded, setDepartmentsLoaded] = useState(false);
   const [departmentId, setDepartmentId] = useState(me?.departmentId ?? '');
   const [data, setData] = useState<DashboardData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      api.listDepartments(token).then((all) => {
+    if (!isSuperAdmin) return;
+    api
+      .listDepartments(token)
+      .then((all) => {
         const active = all.filter((d) => d.isActive);
         setDepartments(active);
         if (!departmentId && active[0]) setDepartmentId(active[0].id);
-      });
-    }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load departments'))
+      .finally(() => setDepartmentsLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuperAdmin, token]);
 
   useEffect(() => {
-    if (departmentId) api.getDashboard(departmentId, token).then(setData);
+    if (!departmentId) return;
+    setError(null);
+    api
+      .getDashboard(departmentId, token)
+      .then(setData)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load the dashboard'));
   }, [departmentId, token]);
 
   const maxStatusCount = data ? Math.max(1, ...data.statusCounts.map((s) => s.count)) : 1;
@@ -45,7 +55,11 @@ export function DepartmentDashboardPage() {
         )}
       </div>
 
-      {!data ? (
+      {error && <p className="error">{error}</p>}
+
+      {isSuperAdmin && departmentsLoaded && departments.length === 0 ? (
+        <p>No department is live yet — activate one from the departments list before there's anything to show here.</p>
+      ) : !data ? (
         <p>Loading…</p>
       ) : (
         <>

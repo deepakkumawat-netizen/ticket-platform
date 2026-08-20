@@ -17,20 +17,35 @@ export function TicketListPage() {
   const [priority, setPriority] = useState('');
   const [assignedAgentId, setAssignedAgentId] = useState('');
   const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isSuperAdmin) {
-      api.listDepartments(token).then((all) => setDepartments(all.filter((d) => d.isActive)));
-    }
+    if (!isSuperAdmin) return;
+    api
+      .listDepartments(token)
+      .then((all) => {
+        const active = all.filter((d) => d.isActive);
+        setDepartments(active);
+        // Without this, the <select> visually defaults to showing the first
+        // option while departmentId (React state) stays '' — every effect
+        // below keys off departmentId, so nothing would ever load.
+        if (!departmentId && active[0]) setDepartmentId(active[0].id);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load departments'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSuperAdmin, token]);
 
   useEffect(() => {
-    if (departmentId) api.listDepartmentUsers(departmentId, token).then(setStaffMembers);
+    if (departmentId) api.listDepartmentUsers(departmentId, token).catch(() => []).then((members) => setStaffMembers(members ?? []));
   }, [departmentId, token]);
 
   useEffect(() => {
     if (!departmentId) return;
-    api.listTickets(departmentId, { priority: priority || undefined, assignedAgentId: assignedAgentId || undefined, search: search || undefined }, token).then(setTickets);
+    setError(null);
+    api
+      .listTickets(departmentId, { priority: priority || undefined, assignedAgentId: assignedAgentId || undefined, search: search || undefined }, token)
+      .then(setTickets)
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load tickets'));
   }, [departmentId, priority, assignedAgentId, search, token]);
 
   return (
@@ -41,6 +56,8 @@ export function TicketListPage() {
           + New ticket
         </Link>
       </div>
+
+      {error && <p className="error">{error}</p>}
 
       {isSuperAdmin && (
         <label className="inline-filter">

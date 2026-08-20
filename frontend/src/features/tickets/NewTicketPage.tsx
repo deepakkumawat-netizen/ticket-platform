@@ -51,16 +51,21 @@ export function NewTicketPage() {
   // SUPER_ADMIN can raise a ticket in any live department; everyone else is
   // fixed to their own — mirrors assertDepartmentAccess on the backend.
   useEffect(() => {
-    if (isSuperAdmin) {
-      api.listDepartments(token).then((all) => setDepartments(all.filter((d) => d.isActive)));
-    }
+    if (!isSuperAdmin) return;
+    api
+      .listDepartments(token)
+      .then((all) => setDepartments(all.filter((d) => d.isActive)))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load departments'));
   }, [isSuperAdmin, token]);
 
   useEffect(() => {
     if (!departmentId) return;
     setTicketTypeId('');
-    api.listTicketTypes(departmentId, token).then((all) => setTicketTypes(all.filter((t) => t.isActive)));
-    api.listDepartmentUsers(departmentId, token).then(setStaffMembers);
+    api
+      .listTicketTypes(departmentId, token)
+      .then((all) => setTicketTypes(all.filter((t) => t.isActive)))
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load ticket types'));
+    api.listDepartmentUsers(departmentId, token).catch(() => []).then((members) => setStaffMembers(members ?? []));
   }, [departmentId, token]);
 
   // Once a ticket type AND a customer are both chosen, fetch the frozen
@@ -73,16 +78,22 @@ export function NewTicketPage() {
     setCustomFieldValues({});
     if (!ticketTypeId || !selectedCustomer) return;
 
-    api.getTicketTypeDefinition(ticketTypeId, token).then((def) => {
-      const latestPublished = def.versions.filter((v) => v.status === 'PUBLISHED').sort((a, b) => b.versionNumber - a.versionNumber)[0];
-      if (!latestPublished) {
-        setNoPublishedVersion(true);
-        return;
-      }
-      setPublishedVersion(latestPublished.versionNumber);
-      const customerType = selectedCustomer.company ? 'B2B' : 'B2C';
-      api.getTicketTypeVersion(ticketTypeId, latestPublished.versionNumber, customerType, token).then((v) => setCustomFields(v.fields));
-    });
+    api
+      .getTicketTypeDefinition(ticketTypeId, token)
+      .then((def) => {
+        const latestPublished = def.versions.filter((v) => v.status === 'PUBLISHED').sort((a, b) => b.versionNumber - a.versionNumber)[0];
+        if (!latestPublished) {
+          setNoPublishedVersion(true);
+          return;
+        }
+        setPublishedVersion(latestPublished.versionNumber);
+        const customerType = selectedCustomer.company ? 'B2B' : 'B2C';
+        api
+          .getTicketTypeVersion(ticketTypeId, latestPublished.versionNumber, customerType, token)
+          .then((v) => setCustomFields(v.fields))
+          .catch((err) => setError(err instanceof Error ? err.message : 'Could not load this ticket type\'s form'));
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Could not load this ticket type'));
   }, [ticketTypeId, selectedCustomer, token]);
 
   async function onSearchCustomers(q: string) {
