@@ -16,10 +16,12 @@ export class DashboardsService {
   constructor(private prisma: PrismaService) {}
 
   async getDashboard(departmentId: string) {
+    const department = await this.prisma.department.findUniqueOrThrow({ where: { id: departmentId }, select: { key: true } });
     const tickets = await this.prisma.ticket.findMany({
       where: { departmentId },
       select: {
         id: true,
+        ticketNumber: true,
         subject: true,
         priority: true,
         statusKey: true,
@@ -89,6 +91,7 @@ export class DashboardsService {
       .slice(0, 10)
       .map((t) => ({
         id: t.id,
+        ticketNumber: t.ticketNumber,
         subject: t.subject,
         priority: t.priority,
         statusLabel: statusLabel(t),
@@ -97,6 +100,7 @@ export class DashboardsService {
       }));
 
     return {
+      departmentKey: department.key,
       totals: { open: openTickets.length, total: tickets.length },
       statusCounts: [...statusCounts.values()].sort((a, b) => b.count - a.count),
       slaSummary: { onTrack: Math.max(onTrack, 0), responseBreached, resolutionBreached, noSlaRule },

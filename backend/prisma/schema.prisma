@@ -51,6 +51,7 @@ enum StaffRole {
   SUPER_ADMIN
   DEPT_ADMIN
   AGENT
+  EMPLOYEE // self-service: raises + reads only their own tickets, see @ticket-platform/shared
 }
 
 // Internal staff. SUPER_ADMIN has departmentId = null (org-wide).
@@ -257,6 +258,11 @@ model TicketTypeVersion {
 
 model Ticket {
   id                     String               @id @default(cuid())
+  // Human-facing ID (shown as "{department.key}-{ticketNumber}", e.g.
+  // "TECH-42"). A plain DB-level sequence, not scoped per department —
+  // Postgres guarantees it's gap-free-enough and race-free without any
+  // application-level locking, which a true per-department counter would need.
+  ticketNumber           Int                  @unique @default(autoincrement())
   org                    Organization         @relation(fields: [orgId], references: [id])
   orgId                  String
   department             Department           @relation(fields: [departmentId], references: [id])

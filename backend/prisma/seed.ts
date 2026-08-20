@@ -57,10 +57,14 @@ async function main() {
     where: { orgId_key: { orgId: org.id, key: DepartmentKey.TECH } },
   });
   await seedStaffMember(org.id, techDept.id, 'tech-agent@codevidhya.com', 'Tech Agent', StaffRole.AGENT);
+  // EMPLOYEE is never department-scoped (see enums.ts) — this is the
+  // self-service login: raises tickets to any live department, sees only
+  // its own via /my-tickets.
+  await seedStaffMember(org.id, null, 'employee@codevidhya.com', 'Sample Employee', StaffRole.EMPLOYEE);
   await seedReadyToUseTechSetup(techDept.id, superAdmin.id);
 }
 
-async function seedStaffMember(orgId: string, departmentId: string, email: string, name: string, role: StaffRole) {
+async function seedStaffMember(orgId: string, departmentId: string | null, email: string, name: string, role: StaffRole) {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return existing;
   const user = await prisma.user.create({ data: { orgId, departmentId, email, name, role } });

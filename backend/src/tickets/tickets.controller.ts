@@ -6,6 +6,7 @@ import { assertDepartmentAccess } from '../common/scope';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { TicketsService } from './tickets.service';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { CreateMyTicketDto } from './dto/create-my-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { TransitionTicketDto } from './dto/transition-ticket.dto';
@@ -52,5 +53,24 @@ export class TicketsController {
   @Patch('tickets/:id/status')
   transition(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: TransitionTicketDto) {
     return this.tickets.transition(staff, id, dto.toStatusKey);
+  }
+
+  // ── Self-service (any staff role, but this is what EMPLOYEE is for) ───
+  // Not department-scoped — see tickets.service.ts's createForSelf/listMine/
+  // getMineOrThrow, which scope by "am I the requester", not departmentId.
+
+  @Post('my-tickets')
+  createMine(@CurrentStaff() staff: StaffJwtPayload, @Body() dto: CreateMyTicketDto) {
+    return this.tickets.createForSelf(staff, dto.departmentId, dto);
+  }
+
+  @Get('my-tickets')
+  listMine(@CurrentStaff() staff: StaffJwtPayload) {
+    return this.tickets.listMine(staff);
+  }
+
+  @Get('my-tickets/:id')
+  getMine(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.getMineOrThrow(staff, id);
   }
 }

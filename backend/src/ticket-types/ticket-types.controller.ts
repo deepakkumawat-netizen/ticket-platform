@@ -38,7 +38,10 @@ export class TicketTypesController {
 
   @Get('departments/:departmentId/ticket-types')
   list(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
-    assertDepartmentAccess(staff, departmentId);
+    // EMPLOYEE isn't pinned to a department (see departments.service.ts) —
+    // they need to browse any live department's ticket types to raise a
+    // self-service ticket against it. Every other role stays scoped.
+    if (staff.role !== StaffRole.EMPLOYEE) assertDepartmentAccess(staff, departmentId);
     return this.ticketTypes.listDefinitions(departmentId);
   }
 

@@ -8,12 +8,19 @@ import { UpdateDepartmentDto } from './dto/update-department.dto';
 export class DepartmentsService {
   constructor(private prisma: PrismaService) {}
 
-  // SUPER_ADMIN sees every department (needed for the cross-department
-  // dashboard and for onboarding the next department); everyone else only
-  // ever sees their own.
+  // SUPER_ADMIN sees every department, including inactive ones (needed for
+  // the cross-department dashboard and for onboarding the next department).
+  // EMPLOYEE sees every LIVE department org-wide (they're not scoped to any
+  // one department — they need to pick which one to raise a self-service
+  // ticket against). Everyone else (DEPT_ADMIN, AGENT) only sees their own.
   list(staff: StaffJwtPayload) {
-    const where = staff.role === StaffRole.SUPER_ADMIN ? { orgId: staff.orgId } : { id: staff.departmentId ?? '' };
-    return this.prisma.department.findMany({ where });
+    if (staff.role === StaffRole.SUPER_ADMIN) {
+      return this.prisma.department.findMany({ where: { orgId: staff.orgId } });
+    }
+    if (staff.role === StaffRole.EMPLOYEE) {
+      return this.prisma.department.findMany({ where: { orgId: staff.orgId, isActive: true } });
+    }
+    return this.prisma.department.findMany({ where: { id: staff.departmentId ?? '' } });
   }
 
   update(id: string, dto: UpdateDepartmentDto) {

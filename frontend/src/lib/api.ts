@@ -89,6 +89,8 @@ export type StaffSearchResult = { id: string; name: string; email: string; role:
 
 export type TicketSummary = {
   id: string;
+  ticketNumber: number;
+  department: { key: string; name: string };
   subject: string;
   priority: string;
   statusKey: string;
@@ -98,6 +100,12 @@ export type TicketSummary = {
   assignedAgent: { id: string; name: string } | null;
   ticketTypeDefinition: { id: string; name: string };
 };
+
+// "TECH-42" — the Zoho-style human-facing ID. Always derive this from live
+// data, never store/duplicate the string itself.
+export function ticketDisplayId(t: { ticketNumber: number; department: { key: string } }) {
+  return `${t.department.key}-${t.ticketNumber}`;
+}
 export type TicketDetail = TicketSummary & {
   description: string;
   customFields: Record<string, unknown>;
@@ -110,11 +118,12 @@ export type TicketDetail = TicketSummary & {
 };
 
 export type DashboardData = {
+  departmentKey: string;
   totals: { open: number; total: number };
   statusCounts: { statusKey: string; label: string; count: number }[];
   slaSummary: { onTrack: number; responseBreached: number; resolutionBreached: number; noSlaRule: number };
   agentWorkload: { agentId: string | null; agentName: string; openCount: number; totalCount: number }[];
-  aging: { id: string; subject: string; priority: string; statusLabel: string; assignedAgentName: string; ageHours: number }[];
+  aging: { id: string; ticketNumber: number; subject: string; priority: string; statusLabel: string; assignedAgentName: string; ageHours: number }[];
 };
 
 export const api = {
@@ -183,4 +192,29 @@ export const api = {
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),
+
+  // ── Self-service (EMPLOYEE) ──────────────────────────────────────────
+  createMyTicket: (
+    dto: {
+      departmentId: string;
+      ticketTypeDefinitionId: string;
+      priority: string;
+      subject: string;
+      description: string;
+      customFields?: Record<string, unknown>;
+    },
+    token: string | null,
+  ) => request<TicketDetail>('/my-tickets', { method: 'POST', body: JSON.stringify(dto), token }),
+  listMyTickets: (token: string | null) => request<TicketSummary[]>('/my-tickets', { token }),
+  getMyTicket: (id: string, token: string | null) => request<TicketDetail>(`/my-tickets/${id}`, { token }),
+
+  // ── Admin: onboarding logins (SUPER_ADMIN only) ─────────────────────
+  createUser: (
+    dto: { email: string; name: string; role: string; departmentId?: string; password?: string },
+    token: string | null,
+  ) =>
+    request<{ id: string; email: string; name: string; role: string; departmentId: string | null; temporaryPassword: string }>(
+      '/users',
+      { method: 'POST', body: JSON.stringify(dto), token },
+    ),
 };

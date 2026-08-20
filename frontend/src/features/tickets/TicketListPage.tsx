@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, staffToken, staffUser, Department, StaffMember, TicketSummary } from '../../lib/api';
+import { api, staffToken, staffUser, ticketDisplayId, Department, StaffMember, TicketSummary } from '../../lib/api';
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 
@@ -98,6 +98,7 @@ export function TicketListPage() {
       <table className="ticket-table">
         <thead>
           <tr>
+            <th>ID</th>
             <th>Subject</th>
             <th>Type</th>
             <th>Priority</th>
@@ -109,6 +110,9 @@ export function TicketListPage() {
         <tbody>
           {tickets.map((t) => (
             <tr key={t.id}>
+              <td className="ticket-id-cell">
+                <Link to={`/app/tickets/${t.id}`}>{ticketDisplayId(t)}</Link>
+              </td>
               <td>
                 <Link to={`/app/tickets/${t.id}`}>{t.subject}</Link>
               </td>
@@ -123,7 +127,7 @@ export function TicketListPage() {
           ))}
           {tickets.length === 0 && (
             <tr>
-              <td colSpan={6} className="empty-row">
+              <td colSpan={7} className="empty-row">
                 No tickets match these filters.
               </td>
             </tr>

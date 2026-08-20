@@ -7,6 +7,12 @@ export const StaffRole = {
   SUPER_ADMIN: 'SUPER_ADMIN',
   DEPT_ADMIN: 'DEPT_ADMIN',
   AGENT: 'AGENT',
+  // Self-service only: raises tickets for themself and reads their own
+  // ticket history via /my-tickets. Never department-scoped (departmentId
+  // is null, like SUPER_ADMIN) and never granted the department queue,
+  // dashboard, assignment, or admin routes — see the EMPLOYEE carve-outs in
+  // departments.service.ts, ticket-types.controller.ts, and tickets.controller.ts.
+  EMPLOYEE: 'EMPLOYEE',
 } as const;
 export type StaffRole = (typeof StaffRole)[keyof typeof StaffRole];
 

@@ -12,6 +12,10 @@ const TICKET_INCLUDE = {
   company: { select: { id: true, name: true } },
   assignedAgent: { select: { id: true, name: true } },
   ticketTypeDefinition: { select: { id: true, name: true } },
+  // department.key powers the human-facing "{key}-{ticketNumber}" ID (e.g.
+  // "TECH-42") shown in the UI — ticketNumber itself is a plain scalar
+  // column, already present on every response without being listed here.
+  department: { select: { key: true, name: true } },
 };
 
 type StatusSchemaSnapshot = {
@@ -34,6 +38,11 @@ export class TicketsService {
   // start. This is the same snapshot the DynamicFormRenderer fetches, so
   // "what the form showed" and "what got validated" can never drift apart.
   async create(staff: StaffJwtPayload, departmentId: string, dto: CreateTicketDto) {
+    const department = await this.prisma.department.findUnique({ where: { id: departmentId } });
+    if (!department || !department.isActive) {
+      throw new BadRequestException('That department is not available');
+    }
+
     const ticketTypeDef = await this.prisma.ticketTypeDefinition.findUnique({
       where: { id: dto.ticketTypeDefinitionId },
     });
@@ -96,6 +105,58 @@ export class TicketsService {
       },
       include: TICKET_INCLUDE,
     });
+  }
+
+  // ── Self-service (EMPLOYEE role) ─────────────────────────────────────
+  // Deliberately thin wrappers around create()/the customer-scoping idea
+  // above — an employee raising their own ticket is the exact same write
+  // path as a DEPT_ADMIN/AGENT raising one on a colleague's behalf, just
+  // with the requester forced to "me" and assignment stripped, never taken
+  // from the client. See tickets.controller.ts for why no @Roles guard is
+  // needed here (it's inherently self-scoped for any role).
+
+  createForSelf(staff: StaffJwtPayload, departmentId: string, dto: CreateTicketDto) {
+    return this.create(staff, departmentId, {
+      ...dto,
+      requesterUserId: staff.sub,
+      customerId: undefined,
+      assignedAgentId: undefined,
+    });
+  }
+
+  async listMine(staff: StaffJwtPayload) {
+    const customerId = await this.myCustomerId(staff);
+    if (!customerId) return []; // never raised a ticket yet — nothing to show, don't create a Customer row on a read
+    return this.prisma.ticket.findMany({
+      where: { customerId },
+      include: TICKET_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async getMineOrThrow(staff: StaffJwtPayload, id: string) {
+    const customerId = await this.myCustomerId(staff);
+    const ticket = customerId
+      ? await this.prisma.ticket.findUnique({
+          where: { id },
+          include: {
+            ...TICKET_INCLUDE,
+            ticketTypeVersion: { select: { statusSchemaSnapshot: true, fieldSchemaSnapshot: true, versionNumber: true } },
+          },
+        })
+      : null;
+    // Not yours (or doesn't exist) reads identically — no signal either way
+    // about whether some other employee's ticket with that id exists.
+    if (!ticket || ticket.customerId !== customerId) throw new NotFoundException('Ticket not found');
+    return ticket;
+  }
+
+  private async myCustomerId(staff: StaffJwtPayload): Promise<string | null> {
+    const me = await this.prisma.user.findUnique({ where: { id: staff.sub } });
+    if (!me) return null;
+    const customer = await this.prisma.customer.findUnique({ where: { email: me.email } });
+    return customer?.id ?? null;
   }
 
   // ── List / detail ────────────────────────────────────────────────────

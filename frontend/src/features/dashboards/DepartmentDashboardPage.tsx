@@ -1,6 +1,10 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { api, staffToken, staffUser, DashboardData, Department } from '../../lib/api';
 
+function agingDisplayId(departmentKey: string, ticketNumber: number) {
+  return `${departmentKey}-${ticketNumber}`;
+}
+
 // The management-facing view this whole feature exists for: replaces the
 // Excel sheet with a live read of the same Ticket rows the queue works from.
 export function DepartmentDashboardPage() {
@@ -116,6 +120,7 @@ export function DepartmentDashboardPage() {
             <table className="ticket-table">
               <thead>
                 <tr>
+                  <th>ID</th>
                   <th>Subject</th>
                   <th>Status</th>
                   <th>Priority</th>
@@ -126,6 +131,7 @@ export function DepartmentDashboardPage() {
               <tbody>
                 {data.aging.map((t) => (
                   <tr key={t.id}>
+                    <td className="ticket-id-cell">{agingDisplayId(data.departmentKey, t.ticketNumber)}</td>
                     <td>{t.subject}</td>
                     <td>{t.statusLabel}</td>
                     <td>
@@ -137,7 +143,7 @@ export function DepartmentDashboardPage() {
                 ))}
                 {data.aging.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="empty-row">
+                    <td colSpan={6} className="empty-row">
                       No open tickets.
                     </td>
                   </tr>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, staffToken, staffUser, StaffMember, TicketDetail } from '../../lib/api';
+import { api, staffToken, staffUser, ticketDisplayId, StaffMember, TicketDetail } from '../../lib/api';
 
 export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -54,7 +54,9 @@ export function TicketDetailPage() {
   return (
     <div className="page-shell">
       <div className="page-header">
-        <h1>{ticket.subject}</h1>
+        <h1>
+          <span className="ticket-id-badge">{ticketDisplayId(ticket)}</span> {ticket.subject}
+        </h1>
         <span className={`priority-chip priority-${ticket.priority.toLowerCase()}`}>{ticket.priority}</span>
       </div>
 

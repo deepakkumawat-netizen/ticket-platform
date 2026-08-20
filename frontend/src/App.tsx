@@ -4,11 +4,22 @@ import { PortalLoginPage } from './features/auth/PortalLoginPage';
 import { TicketListPage } from './features/tickets/TicketListPage';
 import { NewTicketPage } from './features/tickets/NewTicketPage';
 import { TicketDetailPage } from './features/tickets/TicketDetailPage';
+import { MyTicketsPage } from './features/tickets/MyTicketsPage';
+import { RaiseTicketPage } from './features/tickets/RaiseTicketPage';
+import { MyTicketDetailPage } from './features/tickets/MyTicketDetailPage';
+import { CreateUserPage } from './features/admin/CreateUserPage';
 import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
 import { RequireAuth } from './app/RequireAuth';
 import { StaffLayout } from './app/StaffLayout';
-import { staffToken, customerToken } from './lib/api';
+import { staffToken, staffUser, customerToken } from './lib/api';
+
+// EMPLOYEE has no department queue/dashboard — land them on their own
+// ticket list instead. Everyone else lands on the dashboard, as before.
+function AppIndex() {
+  const isEmployee = staffUser.get()?.role === 'EMPLOYEE';
+  return <Navigate to={isEmployee ? '/app/my-tickets' : '/app/dashboard'} replace />;
+}
 
 // Two independent route trees sharing one SPA (per the plan's pragmatic v1
 // folder structure) — /app/* is the internal staff tree, /portal/* is the
@@ -21,11 +32,15 @@ export default function App() {
       <Route path="/staff/login" element={<StaffLoginPage />} />
       <Route element={<RequireAuth token={staffToken.get()} redirectTo="/staff/login" />}>
         <Route element={<StaffLayout />}>
-          <Route path="/app" element={<Navigate to="/app/dashboard" replace />} />
+          <Route path="/app" element={<AppIndex />} />
           <Route path="/app/dashboard" element={<DepartmentDashboardPage />} />
           <Route path="/app/tickets" element={<TicketListPage />} />
           <Route path="/app/tickets/new" element={<NewTicketPage />} />
           <Route path="/app/tickets/:id" element={<TicketDetailPage />} />
+          <Route path="/app/my-tickets" element={<MyTicketsPage />} />
+          <Route path="/app/my-tickets/new" element={<RaiseTicketPage />} />
+          <Route path="/app/my-tickets/:id" element={<MyTicketDetailPage />} />
+          <Route path="/app/team/new" element={<CreateUserPage />} />
         </Route>
       </Route>
 
