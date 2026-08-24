@@ -44,6 +44,29 @@ export class TicketTypesService {
     return def;
   }
 
+  /** Lightweight lookup so a controller can run assertDepartmentAccess
+   * BEFORE touching the definition, without pulling the full include set
+   * that getDefinitionOrThrow does. */
+  async getDepartmentIdForDefinition(ticketTypeDefinitionId: string): Promise<string> {
+    const def = await this.prisma.ticketTypeDefinition.findUnique({
+      where: { id: ticketTypeDefinitionId },
+      select: { departmentId: true },
+    });
+    if (!def) throw new NotFoundException('Ticket type not found');
+    return def.departmentId;
+  }
+
+  /** Same as above, but for routes scoped by :fieldId instead of :id
+   * (updateField) — walks up to the owning definition's department. */
+  async getDepartmentIdForField(fieldId: string): Promise<string> {
+    const field = await this.prisma.fieldDefinition.findUnique({
+      where: { id: fieldId },
+      select: { ticketTypeDefinition: { select: { departmentId: true } } },
+    });
+    if (!field) throw new NotFoundException('Field not found');
+    return field.ticketTypeDefinition.departmentId;
+  }
+
   updateDefinition(id: string, dto: UpdateTicketTypeDefinitionDto) {
     return this.prisma.ticketTypeDefinition.update({ where: { id }, data: dto });
   }

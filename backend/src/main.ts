@@ -1,4 +1,5 @@
 import * as dns from 'dns';
+import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -15,7 +16,16 @@ dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.enableCors(); // tighten to the real frontend origin(s) before deploying
+  app.use(helmet());
+  // CORS_ORIGIN is a comma-separated allowlist. In production the frontend
+  // is served from this same process/origin (see ServeStaticModule below),
+  // so this mainly matters for local dev (Vite on :5173) and any standalone
+  // frontend deploy — set it in the environment rather than widening this.
+  const corsOrigins = (process.env.CORS_ORIGIN ?? 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: corsOrigins, credentials: true });
   // Every controller route lives under /api/... — this is what lets
   // ServeStaticModule (app.module.ts) serve the built frontend from the
   // SAME process/origin without ever colliding with an API route: it

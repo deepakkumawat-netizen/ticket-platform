@@ -45,61 +45,105 @@ export class TicketTypesController {
     return this.ticketTypes.listDefinitions(departmentId);
   }
 
+  // Read access: like `list` above, EMPLOYEE bypasses (they need to browse
+  // any live department's ticket types to raise a self-service ticket);
+  // every other role must belong to the department that owns this
+  // definition — otherwise a DEPT_ADMIN/AGENT in one department could read
+  // (or, below, write) another department's field/status/SLA config just by
+  // guessing/enumerating a ticket-type id.
   @Get('ticket-types/:id')
-  get(@Param('id') id: string) {
+  async get(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    const departmentId = await this.ticketTypes.getDepartmentIdForDefinition(id);
+    if (staff.role !== StaffRole.EMPLOYEE) assertDepartmentAccess(staff, departmentId);
     return this.ticketTypes.getDefinitionOrThrow(id);
   }
 
   @Patch('ticket-types/:id')
   @Roles(StaffRole.DEPT_ADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdateTicketTypeDefinitionDto) {
+  async update(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateTicketTypeDefinitionDto,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.updateDefinition(id, dto);
   }
 
   @Post('ticket-types/:id/fields')
   @Roles(StaffRole.DEPT_ADMIN)
-  addField(@Param('id') id: string, @Body(new ZodValidationPipe(CreateFieldDefinitionSchema)) body: any) {
+  async addField(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(CreateFieldDefinitionSchema)) body: any,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.addField(id, body);
   }
 
   @Patch('ticket-types/fields/:fieldId')
   @Roles(StaffRole.DEPT_ADMIN)
-  updateField(@Param('fieldId') fieldId: string, @Body(new ZodValidationPipe(UpdateFieldDefinitionSchema)) body: any) {
+  async updateField(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('fieldId') fieldId: string,
+    @Body(new ZodValidationPipe(UpdateFieldDefinitionSchema)) body: any,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForField(fieldId));
     return this.ticketTypes.updateField(fieldId, body);
   }
 
   @Post('ticket-types/:id/statuses')
   @Roles(StaffRole.DEPT_ADMIN)
-  addStatus(@Param('id') id: string, @Body() dto: CreateStatusDefinitionDto) {
+  async addStatus(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CreateStatusDefinitionDto,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.addStatus(id, dto);
   }
 
   @Post('ticket-types/:id/transitions')
   @Roles(StaffRole.DEPT_ADMIN)
-  addTransition(@Param('id') id: string, @Body() dto: CreateStatusTransitionDto) {
+  async addTransition(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CreateStatusTransitionDto,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.addTransition(id, dto);
   }
 
   @Post('ticket-types/:id/sla-rules')
   @Roles(StaffRole.DEPT_ADMIN)
-  addSlaRule(@Param('id') id: string, @Body() dto: CreateSlaRuleDto) {
+  async addSlaRule(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CreateSlaRuleDto,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.addSlaRule(id, dto);
   }
 
   @Post('ticket-types/:id/publish')
   @Roles(StaffRole.DEPT_ADMIN)
-  publish(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+  async publish(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.publish(id, staff.sub);
   }
 
   // Schema payload for the frontend's DynamicFormRenderer, pre-filtered to
   // one customerType via the same shared helper the backend validates with.
+  // Same read policy as `get` above — the returned version snapshot also
+  // carries the full field/status/SLA schema, so it needs the same guard.
   @Get('ticket-types/:id/versions/:versionNumber')
-  getVersion(
+  async getVersion(
+    @CurrentStaff() staff: StaffJwtPayload,
     @Param('id') id: string,
     @Param('versionNumber') versionNumber: string,
     @Query('customerType') customerType: CustomerType,
   ) {
+    const departmentId = await this.ticketTypes.getDepartmentIdForDefinition(id);
+    if (staff.role !== StaffRole.EMPLOYEE) assertDepartmentAccess(staff, departmentId);
     return this.ticketTypes.getVersionForRenderer(id, Number(versionNumber), customerType);
   }
 }

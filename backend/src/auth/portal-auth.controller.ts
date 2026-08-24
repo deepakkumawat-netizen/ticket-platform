@@ -1,4 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 
@@ -10,6 +11,7 @@ export class PortalAuthController {
   constructor(private auth: AuthService) {}
 
   @Post('login')
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async login(@Body() dto: LoginDto) {
     const customer = await this.auth.validateCustomer(dto.email, dto.password);
     const tokens = this.auth.issueCustomerTokens(customer);

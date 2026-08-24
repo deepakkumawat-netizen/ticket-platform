@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CustomerType, FieldAppliesTo, FieldType, TicketTypeVersionStatus } from '@ticket-platform/shared';
 import { TicketTypesService } from './ticket-types.service';
 
@@ -110,5 +110,38 @@ describe('TicketTypesService.publish', () => {
     expect(created[0].statusSchemaSnapshot.transitions).toHaveLength(1);
     expect(created[0].slaSnapshot).toHaveLength(1);
     expect(created[0].slaSnapshot[0].customerType).toBe(CustomerType.B2B);
+  });
+});
+
+// These back the assertDepartmentAccess() check every :id/:fieldId route in
+// TicketTypesController now runs BEFORE delegating to the service — the gap
+// where a DEPT_ADMIN in one department could read/edit another department's
+// ticket-type config was exactly this lookup being missing.
+describe('TicketTypesService department lookups', () => {
+  it('getDepartmentIdForDefinition returns the owning department', async () => {
+    const { service } = makeServiceWithDefinition(makeDefinition());
+    await expect(service.getDepartmentIdForDefinition('tt-1')).resolves.toBe('dept-tech');
+  });
+
+  it('getDepartmentIdForDefinition throws NotFoundException for an unknown id', async () => {
+    const prisma = { ticketTypeDefinition: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new TicketTypesService(prisma as any);
+    await expect(service.getDepartmentIdForDefinition('missing')).rejects.toThrow(NotFoundException);
+  });
+
+  it('getDepartmentIdForField walks up to the owning definition\'s department', async () => {
+    const prisma = {
+      fieldDefinition: {
+        findUnique: jest.fn().mockResolvedValue({ ticketTypeDefinition: { departmentId: 'dept-tech' } }),
+      },
+    };
+    const service = new TicketTypesService(prisma as any);
+    await expect(service.getDepartmentIdForField('f-1')).resolves.toBe('dept-tech');
+  });
+
+  it('getDepartmentIdForField throws NotFoundException for an unknown field', async () => {
+    const prisma = { fieldDefinition: { findUnique: jest.fn().mockResolvedValue(null) } };
+    const service = new TicketTypesService(prisma as any);
+    await expect(service.getDepartmentIdForField('missing')).rejects.toThrow(NotFoundException);
   });
 });

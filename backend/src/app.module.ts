@@ -1,8 +1,10 @@
 import { join } from 'path';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -17,6 +19,11 @@ import { AiModule } from './ai/ai.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Global default: 60 req/min per IP across the whole API. Auth routes
+    // additionally set a much tighter per-route @Throttle (see
+    // staff-auth.controller.ts) since login/signup are the actual
+    // brute-force/credential-stuffing targets.
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
     ScheduleModule.forRoot(), // powers the SLA breach-check job (sla module, next)
     // Serves the built frontend (frontend/dist) from this same process, so a
     // single Render service (or any single deploy target) hosts both — no
@@ -42,5 +49,6 @@ import { AiModule } from './ai/ai.module';
     // 4 AI features originally scoped).
   ],
   controllers: [AppController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
