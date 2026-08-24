@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { StaffRole } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { TicketTypesService } from '../ticket-types/ticket-types.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 
 @Injectable()
 export class DepartmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private ticketTypes: TicketTypesService,
+  ) {}
 
   // SUPER_ADMIN sees every department, including inactive ones (needed for
   // the cross-department dashboard and for onboarding the next department).
@@ -23,7 +27,19 @@ export class DepartmentsService {
     return this.prisma.department.findMany({ where: { id: staff.departmentId ?? '' } });
   }
 
-  update(id: string, dto: UpdateDepartmentDto) {
-    return this.prisma.department.update({ where: { id }, data: dto });
+  // Activating an empty department (no ticket type at all yet) auto-
+  // provisions the same "General Support" starter content seed.ts gives
+  // TECH — see TicketTypesService.provisionDefaultTicketType for why: a
+  // live department with nothing to raise a ticket against is a dead end,
+  // and there's no admin UI yet for hand-authoring one from scratch.
+  async update(id: string, dto: UpdateDepartmentDto, activatedByUserId: string) {
+    const updated = await this.prisma.department.update({ where: { id }, data: dto });
+    if (dto.isActive) {
+      const hasTicketType = await this.prisma.ticketTypeDefinition.findFirst({ where: { departmentId: id } });
+      if (!hasTicketType) {
+        await this.ticketTypes.provisionDefaultTicketType(id, activatedByUserId);
+      }
+    }
+    return updated;
   }
 }

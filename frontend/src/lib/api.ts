@@ -183,6 +183,11 @@ export const api = {
   health: () => request<{ status: string }>('/health'),
 
   listDepartments: (token: string | null) => request<Department[]>('/departments', { token }),
+  // SUPER_ADMIN only. Activating a department with no ticket type yet
+  // auto-provisions a default "General Support" one on the backend, so
+  // there's nothing extra to do here to make it usable.
+  updateDepartment: (id: string, dto: { name?: string; isActive?: boolean }, token: string | null) =>
+    request<Department>(`/departments/${id}`, { method: 'PATCH', body: JSON.stringify(dto), token }),
 
   listTicketTypes: (departmentId: string, token: string | null) =>
     request<TicketTypeSummary[]>(`/departments/${departmentId}/ticket-types`, { token }),

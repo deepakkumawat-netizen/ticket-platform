@@ -1067,6 +1067,24 @@ body {
   color: #94a3b8;
 }
 
+.dept-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dept-status-live {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.dept-status-off {
+  background: #e2e8f0;
+  color: #475569;
+}
+
 .inline-checkbox {
   display: flex;
   align-items: center;

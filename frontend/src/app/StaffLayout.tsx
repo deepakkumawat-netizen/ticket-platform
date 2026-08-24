@@ -47,6 +47,9 @@ export function StaffLayout() {
               </NavLink>
               {isSuperAdmin && (
                 <>
+                  <NavLink to="/app/departments" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                    <BuildingIcon /> Departments
+                  </NavLink>
                   <NavLink to="/app/team" end className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                     <UsersIcon /> Team Directory
                   </NavLink>
@@ -176,6 +179,19 @@ function PlusIcon() {
       <circle cx="12" cy="12" r="9" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function BuildingIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="2" width="16" height="20" rx="1" />
+      <line x1="9" y1="7" x2="9" y2="7.01" />
+      <line x1="15" y1="7" x2="15" y2="7.01" />
+      <line x1="9" y1="12" x2="9" y2="12.01" />
+      <line x1="15" y1="12" x2="15" y2="12.01" />
+      <line x1="9" y1="17" x2="15" y2="17" />
     </svg>
   );
 }

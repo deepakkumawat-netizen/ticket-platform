@@ -117,6 +117,55 @@ export class TicketTypesService {
     return this.prisma.escalationRule.create({ data: { ticketTypeDefinitionId, ...dto } });
   }
 
+  // Turning a department "live" is meaningless if it has nothing to raise a
+  // ticket against — this is the same starter content seed.ts provisions for
+  // TECH (see seedReadyToUseTechSetup), reused so activating ANY department
+  // from the admin UI (departments.service.ts's update()) makes it
+  // immediately usable in one click instead of a half-working toggle that
+  // needs someone to hand-author a ticket type via the API first.
+  async provisionDefaultTicketType(departmentId: string, publishedByUserId: string) {
+    const def = await this.prisma.ticketTypeDefinition.create({
+      data: { departmentId, key: 'general-support', name: 'General Support', description: 'Default catch-all ticket type.' },
+    });
+
+    await Promise.all([
+      this.addField(def.id, { key: 'affectedSystem', label: 'Affected system', fieldType: 'TEXT', appliesTo: 'BOTH', required: false, order: 0, options: [] } as any),
+      this.addField(def.id, { key: 'stepsToReproduce', label: 'Steps to reproduce', fieldType: 'TEXTAREA', appliesTo: 'BOTH', required: false, order: 1, options: [] } as any),
+    ]);
+    await Promise.all([
+      this.addStatus(def.id, { key: 'OPEN', label: 'Open', isInitial: true, isTerminal: false, order: 0 } as any),
+      this.addStatus(def.id, { key: 'IN_PROGRESS', label: 'In Progress', isInitial: false, isTerminal: false, order: 1 } as any),
+      this.addStatus(def.id, { key: 'RESOLVED', label: 'Resolved', isInitial: false, isTerminal: true, order: 2 } as any),
+    ]);
+    await Promise.all([
+      this.addTransition(def.id, { fromStatusKey: 'OPEN', toStatusKey: 'IN_PROGRESS', allowedRoles: [] }),
+      this.addTransition(def.id, { fromStatusKey: 'IN_PROGRESS', toStatusKey: 'RESOLVED', allowedRoles: [] }),
+      this.addTransition(def.id, { fromStatusKey: 'OPEN', toStatusKey: 'RESOLVED', allowedRoles: [] }),
+    ]);
+    // Placeholder minutes, identical to TECH's — adjust once there's a real
+    // admin UI for tuning these (or edit the SlaRule rows directly).
+    const slaMinutesByPriority: Record<string, { response: number; resolution: number }> = {
+      URGENT: { response: 30, resolution: 240 },
+      HIGH: { response: 60, resolution: 480 },
+      MEDIUM: { response: 240, resolution: 1440 },
+      LOW: { response: 480, resolution: 4320 },
+    };
+    await Promise.all(
+      (['B2B', 'B2C'] as const).flatMap((customerType) =>
+        Object.entries(slaMinutesByPriority).map(([priority, minutes]) =>
+          this.addSlaRule(def.id, {
+            customerType,
+            priority: priority as any,
+            responseTimeMinutes: minutes.response,
+            resolutionTimeMinutes: minutes.resolution,
+          }),
+        ),
+      ),
+    );
+
+    return this.publish(def.id, publishedByUserId);
+  }
+
   // ── Publish: freezes the current draft tables into an immutable version ──
 
   async publish(ticketTypeDefinitionId: string, publishedByUserId: string) {

@@ -22,7 +22,7 @@ export class DepartmentsController {
   // in the phased rollout (Tech first, then Operations, ...) — SUPER_ADMIN only.
   @Patch(':id')
   @Roles(StaffRole.SUPER_ADMIN)
-  update(@Param('id') id: string, @Body() dto: UpdateDepartmentDto) {
-    return this.departments.update(id, dto);
+  update(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: UpdateDepartmentDto) {
+    return this.departments.update(id, dto, staff.sub);
   }
 }
