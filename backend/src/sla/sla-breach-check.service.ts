@@ -26,6 +26,7 @@ export class SlaBreachCheckService {
     const candidates = await this.prisma.ticket.findMany({
       where: {
         isEscalated: false,
+        isArchived: false, // a "removed" ticket shouldn't get auto-escalated
         OR: [
           { responseDueAt: { lt: now }, firstRespondedAt: null },
           { resolutionDueAt: { lt: now }, resolvedAt: null },

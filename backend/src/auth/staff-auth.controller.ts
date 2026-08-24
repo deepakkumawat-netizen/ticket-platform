@@ -1,6 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { RecaptchaService } from './recaptcha.service';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 
@@ -10,11 +11,15 @@ const AUTH_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
 
 @Controller('auth/staff')
 export class StaffAuthController {
-  constructor(private auth: AuthService) {}
+  constructor(
+    private auth: AuthService,
+    private recaptcha: RecaptchaService,
+  ) {}
 
   @Post('login')
   @Throttle(AUTH_THROTTLE)
   async login(@Body() dto: LoginDto) {
+    await this.recaptcha.verify(dto.captchaToken, 'login');
     const user = await this.auth.validateStaff(dto.email, dto.password);
     const tokens = this.auth.issueStaffTokens(user);
     return {
@@ -27,7 +32,8 @@ export class StaffAuthController {
   // only, never a privileged role).
   @Post('signup')
   @Throttle(AUTH_THROTTLE)
-  signup(@Body() dto: SignupDto) {
+  async signup(@Body() dto: SignupDto) {
+    await this.recaptcha.verify(dto.captchaToken, 'signup');
     return this.auth.signupEmployee(dto);
   }
 }

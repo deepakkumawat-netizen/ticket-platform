@@ -106,6 +106,9 @@ export type TicketSummary = {
   escalatedAt: string | null;
   escalationReason: string | null;
   escalationAcknowledgedAt: string | null;
+  // Reversible "removed from the queue" — see backend's Ticket.isArchived.
+  isArchived: boolean;
+  archivedAt: string | null;
 };
 
 // "TECH-42" — the Zoho-style human-facing ID. Always derive this from live
@@ -154,6 +157,10 @@ export type DirectoryUser = {
   department: { key: string; name: string } | null;
 };
 
+// Only present on the CREATE response, never on a later GET — see
+// tickets.service.ts's create() comment on why this isn't persisted.
+export type CreatedTicket = TicketDetail & { autoAssignReasoning: string | null };
+
 export type NotificationItem = {
   id: string;
   type: string; // 'TICKET_ESCALATED' (urgent) | 'TICKET_MANAGER_FYI' (calm, no action needed)
@@ -163,22 +170,24 @@ export type NotificationItem = {
 };
 
 export const api = {
-  staffLogin: (email: string, password: string) =>
+  // captchaToken: see lib/recaptcha.ts's getRecaptchaToken() — undefined if
+  // reCAPTCHA isn't configured, backend skips verification in that case too.
+  staffLogin: (email: string, password: string, captchaToken?: string) =>
     request<{ accessToken: string; user: { id: string; email: string; name: string; role: string; departmentId: string | null } }>(
       '/auth/staff/login',
-      { method: 'POST', body: JSON.stringify({ email, password }) },
+      { method: 'POST', body: JSON.stringify({ email, password, captchaToken }) },
     ),
   // EMPLOYEE only — see auth.service.ts's signupEmployee for why this is
   // safe to leave unauthenticated.
-  staffSignup: (name: string, email: string, password: string) =>
+  staffSignup: (name: string, email: string, password: string, captchaToken?: string) =>
     request<{ accessToken: string; user: { id: string; email: string; name: string; role: string; departmentId: string | null } }>(
       '/auth/staff/signup',
-      { method: 'POST', body: JSON.stringify({ name, email, password }) },
+      { method: 'POST', body: JSON.stringify({ name, email, password, captchaToken }) },
     ),
-  portalLogin: (email: string, password: string) =>
+  portalLogin: (email: string, password: string, captchaToken?: string) =>
     request<{ accessToken: string; customer: { id: string; name: string } }>('/auth/portal/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, captchaToken }),
     }),
   health: () => request<{ status: string }>('/health'),
 
@@ -221,11 +230,11 @@ export const api = {
       assignedAgentId?: string;
     },
     token: string | null,
-  ) => request<TicketDetail>(`/departments/${departmentId}/tickets`, { method: 'POST', body: JSON.stringify(dto), token }),
+  ) => request<CreatedTicket>(`/departments/${departmentId}/tickets`, { method: 'POST', body: JSON.stringify(dto), token }),
 
   listTickets: (
     departmentId: string,
-    filters: { statusKey?: string; priority?: string; assignedAgentId?: string; search?: string },
+    filters: { statusKey?: string; priority?: string; assignedAgentId?: string; search?: string; archived?: 'true' | 'false' },
     token: string | null,
   ) => {
     const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]);
@@ -237,6 +246,9 @@ export const api = {
     request<TicketDetail>(`/tickets/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ assignedAgentId }), token }),
   transitionTicket: (id: string, toStatusKey: string, token: string | null) =>
     request<TicketDetail>(`/tickets/${id}/status`, { method: 'PATCH', body: JSON.stringify({ toStatusKey }), token }),
+  // SUPER_ADMIN/DEPT_ADMIN only — reversible "remove an unrequired ticket".
+  archiveTicket: (id: string, token: string | null) => request<TicketDetail>(`/tickets/${id}/archive`, { method: 'PATCH', token }),
+  unarchiveTicket: (id: string, token: string | null) => request<TicketDetail>(`/tickets/${id}/unarchive`, { method: 'PATCH', token }),
   escalateTicket: (id: string, note: string | undefined, token: string | null) =>
     request<TicketDetail>(`/tickets/${id}/escalate`, { method: 'POST', body: JSON.stringify({ note }), token }),
   acknowledgeEscalation: (id: string, token: string | null) =>
@@ -267,7 +279,7 @@ export const api = {
       customFields?: Record<string, unknown>;
     },
     token: string | null,
-  ) => request<TicketDetail>('/my-tickets', { method: 'POST', body: JSON.stringify(dto), token }),
+  ) => request<CreatedTicket>('/my-tickets', { method: 'POST', body: JSON.stringify(dto), token }),
   listMyTickets: (token: string | null) => request<TicketSummary[]>('/my-tickets', { token }),
   getMyTicket: (id: string, token: string | null) => request<TicketDetail>(`/my-tickets/${id}`, { token }),
 
@@ -282,6 +294,14 @@ export const api = {
     request<{ draft: string }>(`/tickets/${ticketId}/ai/draft-reply`, { method: 'POST', token }),
   getDashboardInsights: (departmentId: string, token: string | null) =>
     request<{ summary: string }>(`/departments/${departmentId}/ai/insights`, { token }),
+  // Warn-not-block: flags inappropriate language but never prevents
+  // submission — see ai.service.ts's checkLanguage.
+  checkLanguage: (subject: string, description: string, token: string | null) =>
+    request<{ flagged: boolean; reason: string }>('/ai/check-language', {
+      method: 'POST',
+      body: JSON.stringify({ subject, description }),
+      token,
+    }),
 
   // ── Admin: onboarding logins (SUPER_ADMIN only) ─────────────────────
   createUser: (

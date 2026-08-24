@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, staffToken, staffUser } from '../../lib/api';
+import { getRecaptchaToken } from '../../lib/recaptcha';
 import { AuthShell } from './AuthShell';
 
 export function StaffLoginPage() {
@@ -15,7 +16,8 @@ export function StaffLoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const { accessToken, user } = await api.staffLogin(email, password);
+      const captchaToken = await getRecaptchaToken('login');
+      const { accessToken, user } = await api.staffLogin(email, password, captchaToken);
       staffToken.set(accessToken);
       staffUser.set(user);
       navigate('/app');

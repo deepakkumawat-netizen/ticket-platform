@@ -7,6 +7,7 @@ import { StaffAuthController } from './staff-auth.controller';
 import { PortalAuthController } from './portal-auth.controller';
 import { StaffJwtStrategy } from './strategies/staff-jwt.strategy';
 import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
+import { RecaptchaService } from './recaptcha.service';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
     }),
   ],
   controllers: [StaffAuthController, PortalAuthController],
-  providers: [AuthService, StaffJwtStrategy, CustomerJwtStrategy],
+  providers: [AuthService, StaffJwtStrategy, CustomerJwtStrategy, RecaptchaService],
   exports: [AuthService],
 })
 export class AuthModule {}

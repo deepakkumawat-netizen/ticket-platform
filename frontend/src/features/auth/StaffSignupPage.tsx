@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, staffToken, staffUser } from '../../lib/api';
+import { getRecaptchaToken } from '../../lib/recaptcha';
 import { AuthShell } from './AuthShell';
 
 // Public, EMPLOYEE-only — see auth.service.ts's signupEmployee. Anyone can
@@ -23,7 +24,8 @@ export function StaffSignupPage() {
     }
     setSubmitting(true);
     try {
-      const { accessToken, user } = await api.staffSignup(name, email, password);
+      const captchaToken = await getRecaptchaToken('signup');
+      const { accessToken, user } = await api.staffSignup(name, email, password, captchaToken);
       staffToken.set(accessToken);
       staffUser.set(user);
       navigate('/app');

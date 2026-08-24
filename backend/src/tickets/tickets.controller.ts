@@ -82,6 +82,20 @@ export class TicketsController {
     return this.tickets.acknowledgeEscalation(staff, id);
   }
 
+  // Archive/unarchive: SUPER_ADMIN/DEPT_ADMIN only, per Deepak's ask — a
+  // reversible "remove an unrequired ticket" (see tickets.service.ts).
+  @Patch('tickets/:id/archive')
+  @Roles(StaffRole.DEPT_ADMIN)
+  archive(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.archive(staff, id);
+  }
+
+  @Patch('tickets/:id/unarchive')
+  @Roles(StaffRole.DEPT_ADMIN)
+  unarchive(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.unarchive(staff, id);
+  }
+
   // ── Self-service (any staff role, but this is what EMPLOYEE is for) ───
   // Not department-scoped — see tickets.service.ts's createForSelf/listMine/
   // getMineOrThrow, which scope by "am I the requester", not departmentId.

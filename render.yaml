@@ -84,3 +84,16 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
+      # Invisible bot-check (Google reCAPTCHA v3) on login/signup — register
+      # at google.com/recaptcha/admin/create (type v3; add this service's
+      # domain + localhost). Leaving RECAPTCHA_SECRET_KEY unset is safe:
+      # RecaptchaService just skips verification instead of blocking login.
+      # VITE_RECAPTCHA_SITE_KEY isn't secret (it's public by design) but
+      # still needs pasting here since the frontend build (this same
+      # buildCommand) bakes it into the built JS bundle at build time.
+      - key: RECAPTCHA_SECRET_KEY
+        sync: false
+      - key: RECAPTCHA_MIN_SCORE
+        value: "0.5"
+      - key: VITE_RECAPTCHA_SITE_KEY
+        sync: false

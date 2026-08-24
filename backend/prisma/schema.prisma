@@ -331,11 +331,24 @@ model Ticket {
   escalationAcknowledgedByUserId String? // plain scalar, no relation — same lightweight pattern as Attachment.uploadedByStaffId
   reassignmentCount              Int       @default(0)
 
+  // ── Archive (SUPER_ADMIN/DEPT_ADMIN only) ─────────────────────────────
+  // Deliberately reversible, not a real delete — "remove an unrequired
+  // ticket" without permanent data loss. Orthogonal to the status-transition
+  // system on purpose: archiving never touches statusKey, so it works
+  // uniformly across every ticket type without needing a "CANCELLED" status
+  // added to each one's versioned schema. Hidden from the default ticket
+  // list/dashboard queries (see tickets.service.ts/dashboards.service.ts);
+  // unarchive() reverses it completely.
+  isArchived             Boolean              @default(false)
+  archivedAt             DateTime?
+  archivedByUserId       String? // plain scalar, no relation — same lightweight pattern as escalationAcknowledgedByUserId
+
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 
   @@index([departmentId, statusKey])
   @@index([departmentId, isEscalated])
+  @@index([departmentId, isArchived])
   @@index([assignedAgentId])
   @@index([companyId])
   @@index([customerId])

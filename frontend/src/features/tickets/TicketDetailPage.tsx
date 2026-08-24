@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { api, staffToken, staffUser, ticketDisplayId, StaffMember, TicketDetail } from '../../lib/api';
 
 export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
   const token = staffToken.get();
   const me = staffUser.get();
 
@@ -13,6 +14,10 @@ export function TicketDetailPage() {
   const [draft, setDraft] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
+  // Only present for one page load, right after creation (router state,
+  // not persisted) — see api.ts's CreatedTicket / tickets.service.ts's
+  // create() comment on why this isn't stored on the ticket itself.
+  const [autoAssignNote] = useState<string | null>((location.state as { autoAssignReasoning?: string | null } | null)?.autoAssignReasoning ?? null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -72,6 +77,26 @@ export function TicketDetailPage() {
     }
   }
 
+  // Reversible — a confirm() is enough friction for "hide, not delete."
+  async function onArchive() {
+    if (!ticket) return;
+    if (!window.confirm('Archive this ticket? It will be hidden from the queue and dashboard, but can be unarchived anytime.')) return;
+    try {
+      setTicket(await api.archiveTicket(ticket.id, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not archive this ticket');
+    }
+  }
+
+  async function onUnarchive() {
+    if (!ticket) return;
+    try {
+      setTicket(await api.unarchiveTicket(ticket.id, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not unarchive this ticket');
+    }
+  }
+
   // Calm, non-urgent — unlike escalate, this never changes the ticket
   // itself, so there's nothing to setTicket() with; just confirm it sent.
   async function onNotifyManager() {
@@ -108,13 +133,31 @@ export function TicketDetailPage() {
         <h1>
           <span className="ticket-id-badge">{ticketDisplayId(ticket)}</span> {ticket.subject}
         </h1>
-        <span className={`priority-chip priority-${ticket.priority.toLowerCase()}`}>{ticket.priority}</span>
+        <div className="page-header-actions">
+          <span className={`priority-chip priority-${ticket.priority.toLowerCase()}`}>{ticket.priority}</span>
+          {(me?.role === 'DEPT_ADMIN' || me?.role === 'SUPER_ADMIN') &&
+            (ticket.isArchived ? (
+              <button type="button" className="archive-button" onClick={onUnarchive}>
+                Unarchive
+              </button>
+            ) : (
+              <button type="button" className="archive-button" onClick={onArchive}>
+                Archive
+              </button>
+            ))}
+        </div>
       </div>
 
       <p className="ticket-meta">
         {ticket.ticketTypeDefinition.name} · {ticket.customer.name} ({ticket.customer.email})
         {ticket.company && ` · ${ticket.company.name}`} · opened {new Date(ticket.createdAt).toLocaleString()}
       </p>
+
+      {ticket.isArchived && (
+        <div className="archive-banner">
+          📦 Archived{ticket.archivedAt && ` on ${new Date(ticket.archivedAt).toLocaleString()}`} — hidden from the queue and dashboard.
+        </div>
+      )}
 
       {ticket.isEscalated && (
         <div className="escalation-banner">
@@ -163,6 +206,7 @@ export function TicketDetailPage() {
           ))}
         </select>
       </label>
+      {autoAssignNote && <p className="auto-assign-note">🤖 Auto-assigned by AI — {autoAssignNote}</p>}
 
       <section className="ticket-description">
         <h2>Description</h2>

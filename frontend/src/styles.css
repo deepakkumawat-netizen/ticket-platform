@@ -1059,6 +1059,56 @@ body {
   margin: -8px 0 0;
 }
 
+/* Matches the AI-feature accent used elsewhere (draft-reply, insights) so
+   it reads as "AI did this" at a glance, distinct from the escalation
+   red/notify indigo tones. */
+.auto-assign-note {
+  color: #6d28d9;
+  font-size: 13px;
+  margin: -4px 0 0;
+}
+
+/* ── Archive (reversible "remove from queue") ─────────────────────────
+   Neutral slate tone, not red/danger — this is a filing action, not an
+   alarm, unlike escalation. */
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.archive-button {
+  padding: 5px 10px;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  background: white;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.archive-button:hover {
+  background: #f1f5f9;
+}
+
+.archive-banner {
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+.language-warning {
+  background: #fef3c7;
+  color: #b45309;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  margin: 0;
+}
+
 .ticket-row-escalated {
   background: #fef2f2;
 }

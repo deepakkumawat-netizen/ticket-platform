@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   buildCustomFieldsSchema,
@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketTypesService } from '../ticket-types/ticket-types.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { GeminiService } from '../ai/gemini.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
@@ -35,10 +36,13 @@ type SlaSnapshotEntry = { customerType: CustomerType; priority: string; response
 
 @Injectable()
 export class TicketsService {
+  private readonly logger = new Logger(TicketsService.name);
+
   constructor(
     private prisma: PrismaService,
     private ticketTypes: TicketTypesService,
     private notifications: NotificationsService,
+    private gemini: GeminiService,
   ) {}
 
   // ── Create ────────────────────────────────────────────────────────────
@@ -95,7 +99,21 @@ export class TicketsService {
     const responseDueAt = slaRule ? new Date(now.getTime() + slaRule.responseTimeMinutes * 60_000) : null;
     const resolutionDueAt = slaRule ? new Date(now.getTime() + slaRule.resolutionTimeMinutes * 60_000) : null;
 
-    return this.prisma.ticket.create({
+    // Auto-assign: only when nobody explicitly picked someone — an explicit
+    // assignedAgentId (from NewTicketPage's "Assign to" picker) always wins.
+    // Best-effort: a failed/unavailable AI call must never block ticket
+    // creation, it just leaves the ticket Unassigned like it always could.
+    let assignedAgentId = dto.assignedAgentId ?? null;
+    let autoAssignReasoning: string | null = null;
+    if (!assignedAgentId) {
+      const pick = await this.pickBestAgent(departmentId, dto.subject, dto.description);
+      if (pick) {
+        assignedAgentId = pick.agentId;
+        autoAssignReasoning = pick.reasoning;
+      }
+    }
+
+    const ticket = await this.prisma.ticket.create({
       data: {
         orgId: staff.orgId,
         departmentId,
@@ -104,7 +122,7 @@ export class TicketsService {
         customerType,
         companyId: customer.companyId,
         customerId: customer.id,
-        assignedAgentId: dto.assignedAgentId ?? null,
+        assignedAgentId,
         priority: dto.priority,
         statusKey: initialStatus.key,
         subject: dto.subject,
@@ -115,6 +133,95 @@ export class TicketsService {
       },
       include: TICKET_INCLUDE,
     });
+
+    if (autoAssignReasoning) {
+      await this.prisma.auditLog.create({
+        data: {
+          orgId: staff.orgId,
+          actorType: 'SYSTEM',
+          action: 'TICKET_AUTO_ASSIGNED',
+          entityType: 'Ticket',
+          entityId: ticket.id,
+          afterJson: { agentId: assignedAgentId, reasoning: autoAssignReasoning },
+        },
+      });
+    }
+
+    // Not a persisted Ticket field — a one-time explanation for the create
+    // response only, so NewTicketPage/RaiseTicketPage can show it once right
+    // after creation (see their onSubmit handlers). A later GET of this same
+    // ticket won't carry it, same as AI triage's reasoning isn't stored either.
+    return { ...ticket, autoAssignReasoning };
+  }
+
+  // ── AI auto-assign ────────────────────────────────────────────────────
+  // Human-in-the-loop everywhere ELSE in this codebase's AI features means
+  // "suggest, never act" — auto-assign is the one deliberate exception,
+  // scoped narrowly: it only ever picks WHO works a ticket, never touches
+  // its content, status, or resolution (see the AI features doc / Deepak's
+  // explicit call: auto-assign yes, auto-resolve no). Never throws — a
+  // missing GEMINI_API_KEY, a Gemini outage, or zero available agents all
+  // degrade to "leave it Unassigned," exactly like before this existed.
+  private async pickBestAgent(
+    departmentId: string,
+    subject: string,
+    description: string,
+  ): Promise<{ agentId: string; reasoning: string } | null> {
+    try {
+      const candidates = await this.prisma.user.findMany({
+        where: { departmentId, isActive: true, role: { in: [StaffRole.AGENT, StaffRole.DEPT_ADMIN] } },
+        select: { id: true, name: true },
+      });
+      if (candidates.length === 0) return null;
+      if (candidates.length === 1) {
+        // Nothing to pick between — save the AI call.
+        return { agentId: candidates[0].id, reasoning: 'Only one agent available in this department.' };
+      }
+
+      const withContext = await Promise.all(
+        candidates.map(async (c) => {
+          const [openCount, recentResolved] = await Promise.all([
+            this.prisma.ticket.count({ where: { assignedAgentId: c.id, departmentId, resolvedAt: null } }),
+            this.prisma.ticket.findMany({
+              where: { assignedAgentId: c.id, departmentId, resolvedAt: { not: null } },
+              orderBy: { resolvedAt: 'desc' },
+              take: 5,
+              select: { subject: true },
+            }),
+          ]);
+          return { ...c, openCount, recentSubjects: recentResolved.map((t) => t.subject) };
+        }),
+      );
+
+      const prompt = `You are assigning a new support ticket to the best-fit agent in a department. Given
+the ticket and the candidate agents below (their current open-ticket workload, and the subjects of
+tickets they've recently resolved as a rough signal of what they're familiar with), pick exactly one
+agent. Prefer a good subject-matter match, but don't pick someone clearly overloaded if an
+equally-suited agent has more capacity. Always pick exactly one agent ID from the list.
+
+Ticket:
+Subject: ${subject}
+Description: ${description}
+
+Candidates:
+${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.openCount}, recentlyResolved: ${JSON.stringify(c.recentSubjects)}`).join('\n')}`;
+
+      const result = await this.gemini.generateJson<{ agentId: string; reasoning: string }>(prompt, {
+        type: 'OBJECT',
+        properties: {
+          agentId: { type: 'STRING', enum: candidates.map((c) => c.id) },
+          reasoning: { type: 'STRING' },
+        },
+        required: ['agentId', 'reasoning'],
+      });
+
+      if (!candidates.some((c) => c.id === result.agentId)) return null;
+      return result;
+    } catch (err) {
+      // e.g. GEMINI_API_KEY not set, or Gemini unreachable — leave Unassigned.
+      this.logger.warn(`Auto-assign skipped: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
   }
 
   // ── Self-service (EMPLOYEE role) ─────────────────────────────────────
@@ -176,6 +283,10 @@ export class TicketsService {
   list(departmentId: string, filters: ListTicketsQueryDto) {
     const where: Prisma.TicketWhereInput = {
       departmentId,
+      // Archived tickets are hidden from the normal queue by default — pass
+      // ?archived=true to see the Archived view instead. Never both at once,
+      // since "removed from the queue" is the whole point of archiving.
+      isArchived: filters.archived === 'true',
       ...(filters.statusKey ? { statusKey: filters.statusKey } : {}),
       ...(filters.priority ? { priority: filters.priority } : {}),
       ...(filters.assignedAgentId ? { assignedAgentId: filters.assignedAgentId } : {}),
@@ -393,6 +504,47 @@ export class TicketsService {
         body: `Ticket ${displayId} ("${ticket.subject}") has been escalated (${reasonLabel}). Please review it in the Ticket Platform.`,
       },
     );
+  }
+
+  // ── Archive (SUPER_ADMIN/DEPT_ADMIN only — see tickets.controller.ts) ──
+  // Reversible "remove an unrequired ticket" — never a real delete, and
+  // deliberately orthogonal to statusKey/the status-transition system (see
+  // the schema comment on Ticket.isArchived). Idempotent, matching
+  // escalate()'s style: archiving an already-archived ticket (or
+  // unarchiving one that isn't) is a no-op, not an error.
+
+  async archive(staff: StaffJwtPayload, id: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    if (ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+
+    const updated = await this.prisma.ticket.update({
+      where: { id },
+      data: { isArchived: true, archivedAt: new Date(), archivedByUserId: staff.sub },
+      include: TICKET_INCLUDE,
+    });
+    await this.prisma.auditLog.create({
+      data: { orgId: staff.orgId, actorType: 'STAFF', actorUserId: staff.sub, action: 'TICKET_ARCHIVED', entityType: 'Ticket', entityId: id },
+    });
+    return updated;
+  }
+
+  async unarchive(staff: StaffJwtPayload, id: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    if (!ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+
+    const updated = await this.prisma.ticket.update({
+      where: { id },
+      data: { isArchived: false, archivedAt: null, archivedByUserId: null },
+      include: TICKET_INCLUDE,
+    });
+    await this.prisma.auditLog.create({
+      data: { orgId: staff.orgId, actorType: 'STAFF', actorUserId: staff.sub, action: 'TICKET_UNARCHIVED', entityType: 'Ticket', entityId: id },
+    });
+    return updated;
   }
 
   // ── Status transitions ───────────────────────────────────────────────

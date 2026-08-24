@@ -7,6 +7,7 @@ import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { GeminiService } from './gemini.service';
 
 type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
+type LanguageCheckResult = { flagged: boolean; reason: string };
 
 @Injectable()
 export class AiService {
@@ -55,6 +56,36 @@ Description: ${description}`;
       throw new BadRequestException("Gemini's suggestion didn't match a real ticket type — try again");
     }
     return result;
+  }
+
+  // ── Language check ────────────────────────────────────────────────────
+  // Warn-not-block by design (Deepak's explicit call): flags inappropriate
+  // language so the requester gets a chance to rephrase, but never prevents
+  // submission — a false positive blocking someone's genuinely urgent ticket
+  // would be worse than letting an occasional bad-language one through.
+  // Never throws: if Gemini is unavailable, the caller should treat that as
+  // "not flagged" rather than blocking ticket creation on an AI outage.
+  async checkLanguage(subject: string, description: string): Promise<LanguageCheckResult> {
+    try {
+      const prompt = `You are reviewing a workplace internal-helpdesk ticket submission for inappropriate
+language — profanity, insults, harassment, or threats directed at a person. Be lenient: normal
+frustration, urgency, or blunt phrasing about a broken system is NOT inappropriate and must not be
+flagged. Only flag actual profanity, insults, or abusive language.
+
+Subject: ${subject}
+Description: ${description}`;
+
+      return await this.gemini.generateJson<LanguageCheckResult>(prompt, {
+        type: 'OBJECT',
+        properties: {
+          flagged: { type: 'BOOLEAN' },
+          reason: { type: 'STRING' },
+        },
+        required: ['flagged', 'reason'],
+      });
+    } catch {
+      return { flagged: false, reason: '' };
+    }
   }
 
   // ── Response-drafting agent ─────────────────────────────────────────

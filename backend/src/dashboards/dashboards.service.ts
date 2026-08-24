@@ -18,7 +18,9 @@ export class DashboardsService {
   async getDashboard(departmentId: string) {
     const department = await this.prisma.department.findUniqueOrThrow({ where: { id: departmentId }, select: { key: true } });
     const tickets = await this.prisma.ticket.findMany({
-      where: { departmentId },
+      // Archived tickets are "removed" from the working queue — exclude
+      // them from every stat here, same as the ticket list's default view.
+      where: { departmentId, isArchived: false },
       select: {
         id: true,
         ticketNumber: true,

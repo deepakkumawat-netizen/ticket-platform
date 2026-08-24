@@ -7,6 +7,7 @@ import { assertDepartmentAccess } from '../common/scope';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { AiService } from './ai.service';
 import { TriageDto } from './dto/triage.dto';
+import { CheckLanguageDto } from './dto/check-language.dto';
 
 // Every route here only ever SUGGESTS — see ai.service.ts's comments. None
 // of these write to a ticket; the caller (NewTicketPage/RaiseTicketPage/
@@ -23,6 +24,13 @@ export class AiController {
     // department they're raising a self-service ticket to.
     if (staff.role !== StaffRole.EMPLOYEE) assertDepartmentAccess(staff, departmentId);
     return this.ai.triage(departmentId, dto.subject, dto.description);
+  }
+
+  // Not department-scoped — any authenticated staff member (including
+  // EMPLOYEE self-service) can check text before submitting a ticket.
+  @Post('ai/check-language')
+  checkLanguage(@Body() dto: CheckLanguageDto) {
+    return this.ai.checkLanguage(dto.subject, dto.description);
   }
 
   @Post('tickets/:id/ai/draft-reply')

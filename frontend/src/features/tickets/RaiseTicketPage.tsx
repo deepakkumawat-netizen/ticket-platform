@@ -33,6 +33,12 @@ export function RaiseTicketPage() {
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
 
+  // Warn-not-block: a flagged submission shows this and requires a second
+  // click to actually go through — see api.ts's checkLanguage. Cleared
+  // whenever the text changes, so editing re-triggers a fresh check.
+  const [languageWarning, setLanguageWarning] = useState<string | null>(null);
+  const [languageChecked, setLanguageChecked] = useState(false);
+
   useEffect(() => {
     api
       .listDepartments(token)
@@ -105,6 +111,19 @@ export function RaiseTicketPage() {
     if (!subject.trim()) return setError('Enter a subject');
     if (!description.trim()) return setError('Enter a description');
 
+    if (!languageChecked) {
+      try {
+        const check = await api.checkLanguage(subject, description, token);
+        if (check.flagged) {
+          setLanguageWarning(check.reason);
+          setLanguageChecked(true); // don't re-check on the "Submit anyway" click
+          return;
+        }
+      } catch {
+        // AI check unavailable — never block submission on it.
+      }
+    }
+
     setSubmitting(true);
     try {
       const ticket = await api.createMyTicket(
@@ -159,11 +178,28 @@ export function RaiseTicketPage() {
 
         <label>
           Subject
-          <input value={subject} onChange={(e) => setSubject(e.target.value)} required />
+          <input
+            value={subject}
+            onChange={(e) => {
+              setSubject(e.target.value);
+              setLanguageChecked(false);
+              setLanguageWarning(null);
+            }}
+            required
+          />
         </label>
         <label>
           Description
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} required />
+          <textarea
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              setLanguageChecked(false);
+              setLanguageWarning(null);
+            }}
+            rows={4}
+            required
+          />
         </label>
 
         {departmentId && (
@@ -194,9 +230,14 @@ export function RaiseTicketPage() {
           />
         )}
 
+        {languageWarning && (
+          <p className="language-warning">
+            ⚠️ {languageWarning} You can rephrase, or submit anyway.
+          </p>
+        )}
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting}>
-          {submitting ? 'Submitting…' : 'Raise ticket'}
+          {submitting ? 'Submitting…' : languageWarning ? 'Submit anyway' : 'Raise ticket'}
         </button>
       </form>
     </div>

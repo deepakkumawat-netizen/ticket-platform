@@ -184,7 +184,7 @@ export function NewTicketPage() {
         },
         token,
       );
-      navigate(`/app/tickets/${ticket.id}`);
+      navigate(`/app/tickets/${ticket.id}`, { state: { autoAssignReasoning: ticket.autoAssignReasoning } });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create ticket');
     } finally {

@@ -46,7 +46,10 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
   const notifications = { notifyDepartmentManagers, markReadForTicket };
-  const service = new TicketsService(prisma as any, {} as any, notifications as any);
+  // Not exercised by these tests (create()/auto-assign has its own spec) —
+  // just needs to exist so the constructor call type-checks.
+  const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
+  const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any);
   return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket };
 }
 
@@ -149,6 +152,39 @@ describe('TicketsService.acknowledgeEscalation', () => {
   });
 });
 
+// Reversible "remove an unrequired ticket" — never a real delete. See the
+// Ticket.isArchived schema comment for why this is orthogonal to statusKey.
+describe('TicketsService.archive / unarchive', () => {
+  it('archives a ticket and logs an audit entry', async () => {
+    const { service, updateCalls, auditLogCalls } = makeService(makeTicket({ isArchived: false }));
+    await service.archive(STAFF, 'ticket-1');
+    expect(updateCalls[0].isArchived).toBe(true);
+    expect(updateCalls[0].archivedByUserId).toBe(STAFF.sub);
+    expect(auditLogCalls[0].action).toBe('TICKET_ARCHIVED');
+  });
+
+  it('archiving an already-archived ticket is a no-op', async () => {
+    const { service, prisma } = makeService(makeTicket({ isArchived: true }));
+    await service.archive(STAFF, 'ticket-1');
+    expect(prisma.ticket.update).not.toHaveBeenCalled();
+  });
+
+  it('unarchives a ticket, clearing the archive fields, and logs an audit entry', async () => {
+    const { service, updateCalls, auditLogCalls } = makeService(
+      makeTicket({ isArchived: true, archivedAt: new Date(), archivedByUserId: 'someone' }),
+    );
+    await service.unarchive(STAFF, 'ticket-1');
+    expect(updateCalls[0]).toMatchObject({ isArchived: false, archivedAt: null, archivedByUserId: null });
+    expect(auditLogCalls[0].action).toBe('TICKET_UNARCHIVED');
+  });
+
+  it('unarchiving a ticket that is not archived is a no-op', async () => {
+    const { service, prisma } = makeService(makeTicket({ isArchived: false }));
+    await service.unarchive(STAFF, 'ticket-1');
+    expect(prisma.ticket.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('TicketsService.notifyManager — FYI, not an escalation', () => {
   it('never touches the ticket itself (no update call, no isEscalated flip)', async () => {
     const { service, prisma } = makeService(makeTicket());
@@ -170,5 +206,21 @@ describe('TicketsService.notifyManager — FYI, not an escalation', () => {
     await service.notifyManager(STAFF, 'ticket-1');
     await service.notifyManager(STAFF, 'ticket-1');
     expect(notifyDepartmentManagers).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('TicketsService.list — archive filtering', () => {
+  it('hides archived tickets by default', () => {
+    const findMany = jest.fn().mockReturnValue([]);
+    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any);
+    service.list('dept-tech', {});
+    expect(findMany.mock.calls[0][0].where.isArchived).toBe(false);
+  });
+
+  it('shows only archived tickets when ?archived=true', () => {
+    const findMany = jest.fn().mockReturnValue([]);
+    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any);
+    service.list('dept-tech', { archived: 'true' } as any);
+    expect(findMany.mock.calls[0][0].where.isArchived).toBe(true);
   });
 });

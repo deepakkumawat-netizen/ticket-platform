@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, customerToken } from '../../lib/api';
+import { getRecaptchaToken } from '../../lib/recaptcha';
 
 export function PortalLoginPage() {
   const [email, setEmail] = useState('');
@@ -12,7 +13,8 @@ export function PortalLoginPage() {
     e.preventDefault();
     setError(null);
     try {
-      const { accessToken } = await api.portalLogin(email, password);
+      const captchaToken = await getRecaptchaToken('portal_login');
+      const { accessToken } = await api.portalLogin(email, password, captchaToken);
       customerToken.set(accessToken);
       navigate('/portal');
     } catch (err) {
