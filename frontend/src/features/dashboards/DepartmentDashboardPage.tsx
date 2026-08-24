@@ -40,7 +40,13 @@ export function DepartmentDashboardPage() {
     setInsights(null); // stale insight from a different department would be misleading
     api
       .getDashboard(departmentId, token)
-      .then(setData)
+      .then((d) =>
+        // Defensive against a stale response mid-deploy (frontend redeployed
+        // a moment before the backend finishes) — without this, a response
+        // missing these two newer fields would crash the whole page instead
+        // of just showing "0 escalations" for a few seconds.
+        setData({ ...d, escalations: d.escalations ?? { active: 0, acknowledged: 0 }, escalationQueue: d.escalationQueue ?? [] }),
+      )
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load the dashboard'));
   }, [departmentId, token]);
 
