@@ -19,6 +19,9 @@ function makeTicket(overrides: Partial<any> = {}) {
     isEscalated: false,
     customerType: 'B2C',
     priority: 'HIGH',
+    subject: 'Something broke',
+    department: { key: 'TECH' },
+    ticketNumber: 42,
     ticketTypeVersion: { escalationSnapshot: null }, // null => defaults (threshold 2, escalateOnSlaBreach true)
     ...overrides,
   };
@@ -136,5 +139,29 @@ describe('TicketsService.acknowledgeEscalation', () => {
     await service.acknowledgeEscalation(STAFF, 'ticket-1');
     expect(updateCalls[0].escalationAcknowledgedByUserId).toBe(STAFF.sub);
     expect(updateCalls[0].escalationAcknowledgedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('TicketsService.notifyManager — FYI, not an escalation', () => {
+  it('never touches the ticket itself (no update call, no isEscalated flip)', async () => {
+    const { service, prisma } = makeService(makeTicket());
+    await service.notifyManager(STAFF, 'ticket-1', 'heads up');
+    expect(prisma.ticket.update).not.toHaveBeenCalled();
+  });
+
+  it('logs an audit entry and notifies department managers with the FYI type', async () => {
+    const { service, auditLogCalls, notifyDepartmentManagers } = makeService(makeTicket());
+    await service.notifyManager(STAFF, 'ticket-1', 'heads up');
+    expect(auditLogCalls[0].action).toBe('TICKET_MANAGER_NOTIFIED');
+    expect(auditLogCalls[0].afterJson).toMatchObject({ note: 'heads up' });
+    expect(notifyDepartmentManagers).toHaveBeenCalledTimes(1);
+    expect(notifyDepartmentManagers.mock.calls[0][2]).toBe('TICKET_MANAGER_FYI');
+  });
+
+  it('can be sent more than once (no idempotency guard, unlike escalate)', async () => {
+    const { service, notifyDepartmentManagers } = makeService(makeTicket());
+    await service.notifyManager(STAFF, 'ticket-1');
+    await service.notifyManager(STAFF, 'ticket-1');
+    expect(notifyDepartmentManagers).toHaveBeenCalledTimes(2);
   });
 });

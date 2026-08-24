@@ -146,8 +146,8 @@ export type DashboardData = {
 
 export type NotificationItem = {
   id: string;
-  type: string;
-  payload: { ticketId?: string; displayId?: string; subject?: string; reason?: string };
+  type: string; // 'TICKET_ESCALATED' (urgent) | 'TICKET_MANAGER_FYI' (calm, no action needed)
+  payload: { ticketId?: string; displayId?: string; subject?: string; reason?: string; note?: string | null };
   readAt: string | null;
   createdAt: string;
 };
@@ -226,6 +226,10 @@ export const api = {
     request<TicketDetail>(`/tickets/${id}/escalate`, { method: 'POST', body: JSON.stringify({ note }), token }),
   acknowledgeEscalation: (id: string, token: string | null) =>
     request<TicketDetail>(`/tickets/${id}/escalation/acknowledge`, { method: 'PATCH', token }),
+  // Calm, non-urgent "keep the manager posted" — unlike escalate, this never
+  // changes the ticket itself (see tickets.service.ts's notifyManager).
+  notifyManager: (id: string, note: string | undefined, token: string | null) =>
+    request<{ ok: true }>(`/tickets/${id}/notify-manager`, { method: 'POST', body: JSON.stringify({ note }), token }),
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),

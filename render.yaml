@@ -65,3 +65,20 @@ services:
         sync: false # paste a key from aistudio.google.com/apikey — AI features (backend/src/ai) 400 with a clear message until this is set
       - key: GEMINI_MODEL
         value: gemini-3.7-flash # override here if this default is ever wrong/retired — see gemini.service.ts
+      # Escalation-notification emails (backend/src/notifications/mailer.service.ts).
+      # Leaving these unset is safe — MailerService just logs and skips
+      # sending instead of throwing. Using Gmail: smtp.gmail.com / 587 /
+      # your Gmail address for both USER and FROM / a 16-character "App
+      # Password" (NOT your normal Gmail password) from
+      # myaccount.google.com/apppasswords, which requires 2-Step
+      # Verification to be turned on first.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false

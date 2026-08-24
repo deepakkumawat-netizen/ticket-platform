@@ -335,6 +335,44 @@ export class TicketsService {
     return updated;
   }
 
+  // ── FYI to the manager ────────────────────────────────────────────────
+  // Deliberately NOT an escalation: no Ticket field changes, nothing turns
+  // red, it never appears in the dashboard's "Active escalations" queue —
+  // this is just "keep you posted," for when an agent wants the manager
+  // aware of something without sounding an alarm. Can be sent any number of
+  // times (no idempotency guard, unlike escalate()).
+  async notifyManager(staff: StaffJwtPayload, id: string, note?: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+
+    await this.prisma.auditLog.create({
+      data: {
+        orgId: staff.orgId,
+        actorType: 'STAFF',
+        actorUserId: staff.sub,
+        action: 'TICKET_MANAGER_NOTIFIED',
+        entityType: 'Ticket',
+        entityId: id,
+        afterJson: { note: note ?? null },
+      },
+    });
+
+    const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
+    await this.notifications.notifyDepartmentManagers(
+      staff.orgId,
+      ticket.departmentId,
+      'TICKET_MANAGER_FYI',
+      { ticketId: ticket.id, displayId, subject: ticket.subject, note: note ?? null },
+      {
+        subject: `[${displayId}] FYI from the team`,
+        body: `${ticket.subject}${note ? ` — ${note}` : ''}\n\nNo action required — this is just an update, not an escalation.`,
+      },
+    );
+
+    return { ok: true as const };
+  }
+
   private async notifyEscalation(
     orgId: string,
     ticket: { id: string; departmentId: string; ticketNumber: number; subject: string; department: { key: string } },

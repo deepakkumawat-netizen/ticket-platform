@@ -12,6 +12,7 @@ export function TicketDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -68,6 +69,19 @@ export function TicketDetailPage() {
       setTicket(await api.acknowledgeEscalation(ticket.id, token));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not acknowledge this escalation');
+    }
+  }
+
+  // Calm, non-urgent — unlike escalate, this never changes the ticket
+  // itself, so there's nothing to setTicket() with; just confirm it sent.
+  async function onNotifyManager() {
+    if (!ticket) return;
+    setNotifyMessage(null);
+    try {
+      await api.notifyManager(ticket.id, undefined, token);
+      setNotifyMessage('✅ Manager notified — no action needed from them, just keeping them posted.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not notify the manager');
     }
   }
 
@@ -132,7 +146,11 @@ export function TicketDetailPage() {
             🚩 Escalate
           </button>
         )}
+        <button type="button" className="status-move notify-manager-button" onClick={onNotifyManager}>
+          📣 Notify manager
+        </button>
       </p>
+      {notifyMessage && <p className="notify-manager-confirm">{notifyMessage}</p>}
 
       <label className="inline-filter">
         Assigned to

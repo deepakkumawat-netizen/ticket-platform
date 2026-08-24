@@ -1042,6 +1042,23 @@ body {
   background: #fef2f2;
 }
 
+/* Deliberately calmer than escalate-button — indigo (the app's normal
+   accent) instead of red, since this is "FYI," not "urgent." */
+.notify-manager-button {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.notify-manager-button:hover {
+  background: #eef2ff;
+}
+
+.notify-manager-confirm {
+  color: #15803d;
+  font-size: 14px;
+  margin: -8px 0 0;
+}
+
 .ticket-row-escalated {
   background: #fef2f2;
 }

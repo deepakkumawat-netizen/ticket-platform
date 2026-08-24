@@ -13,6 +13,7 @@ import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
 import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { TransitionTicketDto } from './dto/transition-ticket.dto';
 import { EscalateTicketDto } from './dto/escalate-ticket.dto';
+import { NotifyManagerDto } from './dto/notify-manager.dto';
 
 // No @Roles restrictions anywhere here — unlike ticket-types (the admin
 // authoring surface), working tickets is the normal job of every staff role
@@ -64,6 +65,13 @@ export class TicketsController {
   @Post('tickets/:id/escalate')
   escalate(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: EscalateTicketDto) {
     return this.tickets.escalate(staff, id, dto.note);
+  }
+
+  // FYI to the manager — calm, non-urgent, no ticket state changes (unlike
+  // escalate above). Same "any in-department staff role's job" reasoning.
+  @Post('tickets/:id/notify-manager')
+  notifyManager(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: NotifyManagerDto) {
+    return this.tickets.notifyManager(staff, id, dto.note);
   }
 
   // Acknowledging IS an admin action — only the department manager (or
