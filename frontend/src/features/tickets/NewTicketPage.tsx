@@ -118,9 +118,16 @@ export function NewTicketPage() {
 
   async function onCreateExternalRequester(e: FormEvent) {
     e.preventDefault();
-    const created = await api.createCustomer({ name: newRequesterName, email: newRequesterEmail }, token);
-    setSelectedRequester({ kind: 'external', id: created.id, name: created.name, email: created.email, company: created.company });
-    setShowNewRequester(false);
+    setError(null);
+    try {
+      const created = await api.createCustomer({ name: newRequesterName, email: newRequesterEmail }, token);
+      setSelectedRequester({ kind: 'external', id: created.id, name: created.name, email: created.email, company: created.company });
+      setShowNewRequester(false);
+    } catch (err) {
+      // Without this, a failure (e.g. that email already exists) threw
+      // silently — the form just sat there looking unresponsive.
+      setError(err instanceof Error ? err.message : 'Could not add this person');
+    }
   }
 
   // Human-in-the-loop: fills ticketTypeId + priority as a starting point,

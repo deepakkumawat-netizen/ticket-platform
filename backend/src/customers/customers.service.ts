@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 
@@ -36,6 +36,13 @@ export class CustomersService {
   // way a Company gets created in v1, which keeps ticket intake to one form
   // instead of a separate company-management screen.
   async create(orgId: string, dto: CreateCustomerDto) {
+    // Customer.email is globally unique — without this check, a duplicate
+    // surfaced as a raw Prisma P2002 (generic 500) instead of a clean,
+    // actionable message. Same pre-check pattern as users.service.ts's create().
+    if (await this.prisma.customer.findUnique({ where: { email: dto.email } })) {
+      throw new ConflictException('Someone with this email is already in the system — search for them above instead of adding again');
+    }
+
     let companyId: string | undefined;
     if (dto.companyName) {
       const existing = await this.prisma.company.findFirst({
