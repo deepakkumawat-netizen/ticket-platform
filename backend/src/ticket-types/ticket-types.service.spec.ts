@@ -43,6 +43,7 @@ function makeDefinition(overrides: Partial<any> = {}) {
     slaRules: [
       { customerType: CustomerType.B2B, priority: 'HIGH', responseTimeMinutes: 30, resolutionTimeMinutes: 480 },
     ],
+    escalationRules: [],
     ...overrides,
   };
 }
@@ -110,6 +111,30 @@ describe('TicketTypesService.publish', () => {
     expect(created[0].statusSchemaSnapshot.transitions).toHaveLength(1);
     expect(created[0].slaSnapshot).toHaveLength(1);
     expect(created[0].slaSnapshot[0].customerType).toBe(CustomerType.B2B);
+  });
+
+  it('freezes an empty escalationSnapshot when no escalation rules are configured', async () => {
+    const { service, created } = makeServiceWithDefinition(makeDefinition());
+    await service.publish('tt-1', 'user-1');
+    expect(created[0].escalationSnapshot).toEqual([]);
+  });
+
+  it('freezes configured escalation rules into the snapshot', async () => {
+    const { service, created } = makeServiceWithDefinition(
+      makeDefinition({
+        escalationRules: [
+          { customerType: CustomerType.B2B, priority: 'HIGH', escalateOnSlaBreach: true, reassignmentThreshold: 3 },
+        ],
+      }),
+    );
+    await service.publish('tt-1', 'user-1');
+    expect(created[0].escalationSnapshot).toHaveLength(1);
+    expect(created[0].escalationSnapshot[0]).toEqual({
+      customerType: CustomerType.B2B,
+      priority: 'HIGH',
+      escalateOnSlaBreach: true,
+      reassignmentThreshold: 3,
+    });
   });
 });
 

@@ -17,6 +17,7 @@ export function TicketListPage() {
   const [priority, setPriority] = useState('');
   const [assignedAgentId, setAssignedAgentId] = useState('');
   const [search, setSearch] = useState('');
+  const [escalatedOnly, setEscalatedOnly] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,6 +48,8 @@ export function TicketListPage() {
       .then(setTickets)
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load tickets'));
   }, [departmentId, priority, assignedAgentId, search, token]);
+
+  const visibleTickets = escalatedOnly ? tickets.filter((t) => t.isEscalated) : tickets;
 
   return (
     <div className="page-shell">
@@ -93,6 +96,10 @@ export function TicketListPage() {
             </option>
           ))}
         </select>
+        <label className="inline-checkbox">
+          <input type="checkbox" checked={escalatedOnly} onChange={(e) => setEscalatedOnly(e.target.checked)} />
+          🚩 Escalated only
+        </label>
       </div>
 
       <table className="ticket-table">
@@ -108,9 +115,10 @@ export function TicketListPage() {
           </tr>
         </thead>
         <tbody>
-          {tickets.map((t) => (
-            <tr key={t.id}>
+          {visibleTickets.map((t) => (
+            <tr key={t.id} className={t.isEscalated ? 'ticket-row-escalated' : undefined}>
               <td className="ticket-id-cell">
+                {t.isEscalated && <span title="Escalated">🚩 </span>}
                 <Link to={`/app/tickets/${t.id}`}>{ticketDisplayId(t)}</Link>
               </td>
               <td>
@@ -125,7 +133,7 @@ export function TicketListPage() {
               <td>{new Date(t.createdAt).toLocaleDateString()}</td>
             </tr>
           ))}
-          {tickets.length === 0 && (
+          {visibleTickets.length === 0 && (
             <tr>
               <td colSpan={7} className="empty-row">
                 No tickets match these filters.

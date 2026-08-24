@@ -57,6 +57,11 @@ async function main() {
     where: { orgId_key: { orgId: org.id, key: DepartmentKey.TECH } },
   });
   await seedStaffMember(org.id, techDept.id, 'tech-agent@codevidhya.com', 'Tech Agent', StaffRole.AGENT);
+  // The escalation workflow's target — without a DEPT_ADMIN in a department,
+  // notifyDepartmentManagers() falls back to org-wide SUPER_ADMINs, which
+  // works but isn't what real usage looks like; seed one so TECH is
+  // testable end-to-end out of the box.
+  await seedStaffMember(org.id, techDept.id, 'tech-manager@codevidhya.com', 'Tech Manager', StaffRole.DEPT_ADMIN);
   // EMPLOYEE is never department-scoped (see enums.ts) — this is the
   // self-service login: raises tickets to any live department, sees only
   // its own via /my-tickets.

@@ -99,6 +99,13 @@ export type TicketSummary = {
   company: { id: string; name: string } | null;
   assignedAgent: { id: string; name: string } | null;
   ticketTypeDefinition: { id: string; name: string };
+  // See backend's EscalationReason — isEscalated stays true after
+  // acknowledgement (it's history, not a live flag); escalationAcknowledgedAt
+  // is what "still needs attention" checks should look at instead.
+  isEscalated: boolean;
+  escalatedAt: string | null;
+  escalationReason: string | null;
+  escalationAcknowledgedAt: string | null;
 };
 
 // "TECH-42" — the Zoho-style human-facing ID. Always derive this from live
@@ -124,6 +131,25 @@ export type DashboardData = {
   slaSummary: { onTrack: number; responseBreached: number; resolutionBreached: number; noSlaRule: number };
   agentWorkload: { agentId: string | null; agentName: string; openCount: number; totalCount: number }[];
   aging: { id: string; ticketNumber: number; subject: string; priority: string; statusLabel: string; assignedAgentName: string; ageHours: number }[];
+  escalations: { active: number; acknowledged: number };
+  escalationQueue: {
+    id: string;
+    ticketNumber: number;
+    subject: string;
+    priority: string;
+    statusLabel: string;
+    assignedAgentName: string;
+    escalationReason: string | null;
+    escalatedAt: string | null;
+  }[];
+};
+
+export type NotificationItem = {
+  id: string;
+  type: string;
+  payload: { ticketId?: string; displayId?: string; subject?: string; reason?: string };
+  readAt: string | null;
+  createdAt: string;
 };
 
 export const api = {
@@ -196,9 +222,20 @@ export const api = {
     request<TicketDetail>(`/tickets/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ assignedAgentId }), token }),
   transitionTicket: (id: string, toStatusKey: string, token: string | null) =>
     request<TicketDetail>(`/tickets/${id}/status`, { method: 'PATCH', body: JSON.stringify({ toStatusKey }), token }),
+  escalateTicket: (id: string, note: string | undefined, token: string | null) =>
+    request<TicketDetail>(`/tickets/${id}/escalate`, { method: 'POST', body: JSON.stringify({ note }), token }),
+  acknowledgeEscalation: (id: string, token: string | null) =>
+    request<TicketDetail>(`/tickets/${id}/escalation/acknowledge`, { method: 'PATCH', token }),
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),
+
+  // ── Notifications (escalation fan-out lands here) ───────────────────
+  listNotifications: (token: string | null) => request<NotificationItem[]>('/notifications', { token }),
+  getUnreadNotificationCount: (token: string | null) =>
+    request<{ count: number }>('/notifications/unread-count', { token }),
+  markNotificationRead: (id: string, token: string | null) =>
+    request<NotificationItem>(`/notifications/${id}/read`, { method: 'PATCH', token }),
 
   // ── Self-service (EMPLOYEE) ──────────────────────────────────────────
   createMyTicket: (

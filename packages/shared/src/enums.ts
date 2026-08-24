@@ -72,6 +72,16 @@ export const TicketTypeVersionStatus = {
 export type TicketTypeVersionStatus =
   (typeof TicketTypeVersionStatus)[keyof typeof TicketTypeVersionStatus];
 
+// Why a ticket got flagged for its department manager's attention — see
+// backend/src/sla (auto, on SLA breach), tickets.service.ts's escalate()
+// (manual, agent-triggered) and assign() (auto, reassignment-threshold).
+export const EscalationReason = {
+  SLA_BREACH: 'SLA_BREACH',
+  MANUAL: 'MANUAL',
+  REASSIGNMENT_THRESHOLD: 'REASSIGNMENT_THRESHOLD',
+} as const;
+export type EscalationReason = (typeof EscalationReason)[keyof typeof EscalationReason];
+
 export const CommentVisibility = {
   INTERNAL: 'INTERNAL',
   PUBLIC: 'PUBLIC',

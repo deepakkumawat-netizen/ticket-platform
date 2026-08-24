@@ -10,12 +10,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTicketTypeDefinitionDto, UpdateTicketTypeDefinitionDto } from './dto/ticket-type-definition.dto';
 import { CreateStatusDefinitionDto, CreateStatusTransitionDto } from './dto/status.dto';
 import { CreateSlaRuleDto } from './dto/sla-rule.dto';
+import { CreateEscalationRuleDto } from './dto/escalation-rule.dto';
 
 const DEFINITION_INCLUDE = {
   fields: { orderBy: { order: 'asc' as const } },
   statuses: { orderBy: { order: 'asc' as const } },
   transitions: true,
   slaRules: true,
+  escalationRules: true,
   versions: { orderBy: { versionNumber: 'desc' as const }, take: 5 },
 };
 
@@ -107,6 +109,14 @@ export class TicketTypesService {
     return this.prisma.slaRule.create({ data: { ticketTypeDefinitionId, ...dto } });
   }
 
+  // Escalation rules are OPTIONAL, unlike SLA rules — publish() below never
+  // requires one. A priority with no rule at all just uses the defaults
+  // documented on the EscalationRule Prisma model (escalate on breach, 2
+  // reassignments) — see tickets.service.ts/sla-breach-check.service.ts.
+  addEscalationRule(ticketTypeDefinitionId: string, dto: CreateEscalationRuleDto) {
+    return this.prisma.escalationRule.create({ data: { ticketTypeDefinitionId, ...dto } });
+  }
+
   // ── Publish: freezes the current draft tables into an immutable version ──
 
   async publish(ticketTypeDefinitionId: string, publishedByUserId: string) {
@@ -166,6 +176,13 @@ export class TicketTypesService {
       resolutionTimeMinutes: r.resolutionTimeMinutes,
     }));
 
+    const escalationSnapshot = def.escalationRules.map((r) => ({
+      customerType: r.customerType,
+      priority: r.priority,
+      escalateOnSlaBreach: r.escalateOnSlaBreach,
+      reassignmentThreshold: r.reassignmentThreshold,
+    }));
+
     return this.prisma.ticketTypeVersion.create({
       data: {
         ticketTypeDefinitionId,
@@ -174,6 +191,7 @@ export class TicketTypesService {
         fieldSchemaSnapshot,
         statusSchemaSnapshot,
         slaSnapshot,
+        escalationSnapshot,
         publishedAt: new Date(),
         publishedByUserId,
       },

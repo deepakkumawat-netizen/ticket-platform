@@ -1,5 +1,6 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { staffToken, staffUser } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { api, NotificationItem, staffToken, staffUser } from '../lib/api';
 
 // Shared shell for every /app/* screen — sidebar + topbar, TailAdmin-style.
 // Individual pages (DepartmentDashboardPage, TicketListPage, ...) render
@@ -56,7 +57,7 @@ export function StaffLayout() {
 
       <div className="app-main">
         <header className="app-topbar">
-          <div />
+          <NotificationBell />
           <div className="app-topbar-user">
             <span className="app-topbar-name">{me?.name}</span>
             <span className="app-topbar-role">{me?.role.replace('_', ' ')}</span>
@@ -70,6 +71,76 @@ export function StaffLayout() {
         </main>
       </div>
     </div>
+  );
+}
+
+// Polls rather than pushes (no websocket in this codebase) — good enough for
+// v1, same tradeoff every other "live-ish" number here makes (dashboard
+// stats are refetched on navigation, not streamed).
+function NotificationBell() {
+  const token = staffToken.get();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(0);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    const poll = () => api.getUnreadNotificationCount(token).then((r) => setCount(r.count)).catch(() => {});
+    poll();
+    const interval = setInterval(poll, 30_000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  function toggle() {
+    if (!open && token) {
+      api.listNotifications(token).then(setItems).catch(() => {});
+    }
+    setOpen((o) => !o);
+  }
+
+  function onItemClick(n: NotificationItem) {
+    if (!n.readAt && token) {
+      api.markNotificationRead(n.id, token).then(() => setCount((c) => Math.max(0, c - 1)));
+    }
+    setOpen(false);
+  }
+
+  return (
+    <div className="notification-bell-wrap">
+      <button type="button" className="notification-bell" onClick={toggle} aria-label="Notifications">
+        <BellIcon />
+        {count > 0 && <span className="notification-badge">{count > 9 ? '9+' : count}</span>}
+      </button>
+      {open && (
+        <div className="notification-dropdown">
+          <p className="notification-dropdown-title">Notifications</p>
+          {items.length === 0 && <p className="notification-empty">Nothing yet</p>}
+          {items.map((n) => (
+            <Link
+              key={n.id}
+              to={n.payload.ticketId ? `/app/tickets/${n.payload.ticketId}` : '#'}
+              className={`notification-item${n.readAt ? '' : ' unread'}`}
+              onClick={() => onItemClick(n)}
+            >
+              <span className="notification-item-title">
+                {n.payload.displayId ? `${n.payload.displayId} — ` : ''}
+                {n.payload.subject ?? n.type}
+              </span>
+              <span className="notification-item-time">{new Date(n.createdAt).toLocaleString()}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BellIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
   );
 }
 

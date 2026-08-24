@@ -16,6 +16,7 @@ import { TicketTypesService } from './ticket-types.service';
 import { CreateTicketTypeDefinitionDto, UpdateTicketTypeDefinitionDto } from './dto/ticket-type-definition.dto';
 import { CreateStatusDefinitionDto, CreateStatusTransitionDto } from './dto/status.dto';
 import { CreateSlaRuleDto } from './dto/sla-rule.dto';
+import { CreateEscalationRuleDto } from './dto/escalation-rule.dto';
 
 // Every mutation here is DEPT_ADMIN+ (SUPER_ADMIN always passes RolesGuard —
 // see roles.guard.ts) — this whole module IS the low-code admin surface, so
@@ -122,6 +123,17 @@ export class TicketTypesController {
   ) {
     assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
     return this.ticketTypes.addSlaRule(id, dto);
+  }
+
+  @Post('ticket-types/:id/escalation-rules')
+  @Roles(StaffRole.DEPT_ADMIN)
+  async addEscalationRule(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @Body() dto: CreateEscalationRuleDto,
+  ) {
+    assertDepartmentAccess(staff, await this.ticketTypes.getDepartmentIdForDefinition(id));
+    return this.ticketTypes.addEscalationRule(id, dto);
   }
 
   @Post('ticket-types/:id/publish')

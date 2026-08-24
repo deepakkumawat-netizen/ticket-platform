@@ -15,6 +15,8 @@ import { CustomersModule } from './customers/customers.module';
 import { TicketsModule } from './tickets/tickets.module';
 import { DashboardsModule } from './dashboards/dashboards.module';
 import { AiModule } from './ai/ai.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { SlaModule } from './sla/sla.module';
 
 @Module({
   imports: [
@@ -24,7 +26,7 @@ import { AiModule } from './ai/ai.module';
     // staff-auth.controller.ts) since login/signup are the actual
     // brute-force/credential-stuffing targets.
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
-    ScheduleModule.forRoot(), // powers the SLA breach-check job (sla module, next)
+    ScheduleModule.forRoot(), // powers SlaModule's breach-check cron job, below
     // Serves the built frontend (frontend/dist) from this same process, so a
     // single Render service (or any single deploy target) hosts both — no
     // separate static-site deploy, no cross-origin URL to keep in sync.
@@ -44,9 +46,10 @@ import { AiModule } from './ai/ai.module';
     TicketsModule, // ticket create/list/detail/assign/status-transition
     DashboardsModule, // per-department aggregate view (status/SLA/workload/aging)
     AiModule, // Gemini-powered triage/draft-reply/dashboard-insights — needs GEMINI_API_KEY set to actually work
-    // Next up (Phase 0 continuation): SlaModule (breach-check job),
-    // NotificationsModule, Comments/Attachments, the AI chatbot (last of the
-    // 4 AI features originally scoped).
+    NotificationsModule, // in-app + email fan-out — currently just the escalation workflow's delivery mechanism
+    SlaModule, // cron job: auto-escalates tickets whose SLA deadline has passed
+    // Next up (Phase 0 continuation): Comments/Attachments, the AI chatbot
+    // (last of the 4 AI features originally scoped).
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

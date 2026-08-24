@@ -53,6 +53,24 @@ export function TicketDetailPage() {
     }
   }
 
+  async function onEscalate() {
+    if (!ticket) return;
+    try {
+      setTicket(await api.escalateTicket(ticket.id, undefined, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not escalate this ticket');
+    }
+  }
+
+  async function onAcknowledge() {
+    if (!ticket) return;
+    try {
+      setTicket(await api.acknowledgeEscalation(ticket.id, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not acknowledge this escalation');
+    }
+  }
+
   // There's no comment/reply feature yet to send this into (see the
   // workflow doc) — this just gives the agent text to copy into an email
   // or chat and edit as needed.
@@ -84,6 +102,21 @@ export function TicketDetailPage() {
         {ticket.company && ` · ${ticket.company.name}`} · opened {new Date(ticket.createdAt).toLocaleString()}
       </p>
 
+      {ticket.isEscalated && (
+        <div className="escalation-banner">
+          <span>
+            🚩 Escalated ({ticket.escalationReason?.replace(/_/g, ' ').toLowerCase()})
+            {ticket.escalatedAt && ` on ${new Date(ticket.escalatedAt).toLocaleString()}`}
+            {ticket.escalationAcknowledgedAt && ' — acknowledged'}
+          </span>
+          {!ticket.escalationAcknowledgedAt && (me?.role === 'DEPT_ADMIN' || me?.role === 'SUPER_ADMIN') && (
+            <button type="button" className="escalation-acknowledge" onClick={onAcknowledge}>
+              Acknowledge
+            </button>
+          )}
+        </div>
+      )}
+
       <p className="status-line">
         Status: <strong>{currentLabel}</strong>
         {availableMoves.map((m) => {
@@ -94,6 +127,11 @@ export function TicketDetailPage() {
             </button>
           );
         })}
+        {!ticket.isEscalated && (
+          <button type="button" className="status-move escalate-button" onClick={onEscalate}>
+            🚩 Escalate
+          </button>
+        )}
       </p>
 
       <label className="inline-filter">

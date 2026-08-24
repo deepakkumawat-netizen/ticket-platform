@@ -1,8 +1,17 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { buildCustomFieldsSchema, CustomerType, fieldsForCustomerType, StaffRole } from '@ticket-platform/shared';
+import {
+  buildCustomFieldsSchema,
+  CustomerType,
+  EscalationReason,
+  EscalationRuleEntry,
+  fieldsForCustomerType,
+  resolveEscalationRule,
+  StaffRole,
+} from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketTypesService } from '../ticket-types/ticket-types.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
@@ -29,6 +38,7 @@ export class TicketsService {
   constructor(
     private prisma: PrismaService,
     private ticketTypes: TicketTypesService,
+    private notifications: NotificationsService,
   ) {}
 
   // ── Create ────────────────────────────────────────────────────────────
@@ -200,9 +210,17 @@ export class TicketsService {
   }
 
   // ── Assignment ────────────────────────────────────────────────────────
+  // A "reassignment" (bouncing a ticket from one agent to another, not the
+  // first assignment out of Unassigned) is one of the three escalation
+  // triggers — see EscalationReason.REASSIGNMENT_THRESHOLD. The threshold
+  // itself comes from the ticket's own frozen escalationSnapshot, same
+  // "decided in exactly one place" pattern as SLA due dates.
 
   async assign(staff: StaffJwtPayload, id: string, assignedAgentId: string | null | undefined) {
-    const ticket = await this.prisma.ticket.findUnique({ where: { id } });
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { id },
+      include: { ticketTypeVersion: { select: { escalationSnapshot: true } } },
+    });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
 
@@ -210,11 +228,130 @@ export class TicketsService {
       await this.assertAgentInDepartment(assignedAgentId, ticket.departmentId);
     }
 
-    return this.prisma.ticket.update({
+    const isReassignment = !!ticket.assignedAgentId && !!assignedAgentId && assignedAgentId !== ticket.assignedAgentId;
+    // Unchecked form (raw FK scalar) to match the original assignedAgentId
+    // update — the checked TicketUpdateInput only accepts the relation form.
+    const data: Prisma.TicketUncheckedUpdateInput = {
+      assignedAgentId: assignedAgentId ?? null,
+      rowVersion: { increment: 1 },
+    };
+
+    let willAutoEscalate = false;
+    if (isReassignment) {
+      const nextCount = ticket.reassignmentCount + 1;
+      data.reassignmentCount = nextCount;
+      const rule = resolveEscalationRule(
+        ticket.ticketTypeVersion.escalationSnapshot as unknown as EscalationRuleEntry[] | null,
+        ticket.customerType,
+        ticket.priority,
+      );
+      if (!ticket.isEscalated && rule.reassignmentThreshold !== null && nextCount >= rule.reassignmentThreshold) {
+        willAutoEscalate = true;
+        data.isEscalated = true;
+        data.escalatedAt = new Date();
+        data.escalationReason = EscalationReason.REASSIGNMENT_THRESHOLD;
+      }
+    }
+
+    const updated = await this.prisma.ticket.update({ where: { id }, data, include: TICKET_INCLUDE });
+
+    if (willAutoEscalate) {
+      await this.prisma.auditLog.create({
+        data: {
+          orgId: staff.orgId,
+          actorType: 'SYSTEM',
+          action: 'TICKET_ESCALATED',
+          entityType: 'Ticket',
+          entityId: id,
+          afterJson: { reason: EscalationReason.REASSIGNMENT_THRESHOLD, reassignmentCount: updated.reassignmentCount },
+        },
+      });
+      await this.notifyEscalation(staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD);
+    }
+
+    return updated;
+  }
+
+  // ── Escalation ────────────────────────────────────────────────────────
+  // The other two triggers: an agent manually flagging a ticket they're
+  // stuck on, and (backend/src/sla's cron job) an SLA deadline passing.
+  // isEscalated stays true forever once set — it's ticket HISTORY, not a
+  // live alert flag. escalationAcknowledgedAt is what "is this still an
+  // active alert" queries (dashboards, notification fan-out) filter on.
+
+  async escalate(staff: StaffJwtPayload, id: string, note?: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    if (ticket.isEscalated) return ticket; // idempotent — already flagged, nothing to do
+
+    const updated = await this.prisma.ticket.update({
       where: { id },
-      data: { assignedAgentId: assignedAgentId ?? null, rowVersion: { increment: 1 } },
+      data: { isEscalated: true, escalatedAt: new Date(), escalationReason: EscalationReason.MANUAL },
       include: TICKET_INCLUDE,
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        orgId: staff.orgId,
+        actorType: 'STAFF',
+        actorUserId: staff.sub,
+        action: 'TICKET_ESCALATED',
+        entityType: 'Ticket',
+        entityId: id,
+        afterJson: { reason: EscalationReason.MANUAL, note: note ?? null },
+      },
+    });
+    await this.notifyEscalation(staff.orgId, updated, EscalationReason.MANUAL);
+
+    return updated;
+  }
+
+  async acknowledgeEscalation(staff: StaffJwtPayload, id: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    if (!ticket.isEscalated) {
+      throw new BadRequestException('This ticket has not been escalated');
+    }
+
+    const updated = await this.prisma.ticket.update({
+      where: { id },
+      data: { escalationAcknowledgedAt: new Date(), escalationAcknowledgedByUserId: staff.sub },
+      include: TICKET_INCLUDE,
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        orgId: staff.orgId,
+        actorType: 'STAFF',
+        actorUserId: staff.sub,
+        action: 'TICKET_ESCALATION_ACKNOWLEDGED',
+        entityType: 'Ticket',
+        entityId: id,
+      },
+    });
+
+    return updated;
+  }
+
+  private async notifyEscalation(
+    orgId: string,
+    ticket: { id: string; departmentId: string; ticketNumber: number; subject: string; department: { key: string } },
+    reason: EscalationReason,
+  ) {
+    const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
+    const reasonLabel = reason.replace(/_/g, ' ').toLowerCase();
+    await this.notifications.notifyDepartmentManagers(
+      orgId,
+      ticket.departmentId,
+      'TICKET_ESCALATED',
+      { ticketId: ticket.id, displayId, subject: ticket.subject, reason },
+      {
+        subject: `[${displayId}] Escalated — ${reasonLabel}`,
+        body: `Ticket ${displayId} ("${ticket.subject}") has been escalated (${reasonLabel}). Please review it in the Ticket Platform.`,
+      },
+    );
   }
 
   // ── Status transitions ───────────────────────────────────────────────

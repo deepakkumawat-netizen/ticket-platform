@@ -141,6 +141,7 @@ model TicketTypeDefinition {
   statuses     StatusDefinition[]
   transitions  StatusTransition[]
   slaRules     SlaRule[]
+  escalationRules EscalationRule[]
   versions     TicketTypeVersion[]
   tickets      Ticket[]
   createdAt    DateTime     @default(now())
@@ -227,6 +228,25 @@ model SlaRule {
   @@unique([ticketTypeDefinitionId, customerType, priority])
 }
 
+// Generic, per-department+ticket-type escalation configuration — same
+// append-only authoring pattern as SlaRule above, frozen into
+// TicketTypeVersion.escalationSnapshot on publish. A missing rule for a given
+// customerType/priority combo (or a version with no escalationSnapshot at
+// all, e.g. published before this model existed) means "use the defaults":
+// escalateOnSlaBreach = true, reassignmentThreshold = 2 — see
+// tickets.service.ts and sla/sla-breach-check.service.ts.
+model EscalationRule {
+  id                     String               @id @default(cuid())
+  ticketTypeDefinition   TicketTypeDefinition @relation(fields: [ticketTypeDefinitionId], references: [id])
+  ticketTypeDefinitionId String
+  customerType           CustomerType
+  priority               String // LOW | MEDIUM | HIGH | URGENT
+  escalateOnSlaBreach    Boolean              @default(true)
+  reassignmentThreshold  Int? // null = disabled for this priority
+
+  @@unique([ticketTypeDefinitionId, customerType, priority])
+}
+
 enum TicketTypeVersionStatus {
   DRAFT
   PUBLISHED
@@ -246,6 +266,7 @@ model TicketTypeVersion {
   fieldSchemaSnapshot    Json // FieldDefinition[]
   statusSchemaSnapshot   Json // { statuses: StatusDefinition[], transitions: StatusTransition[] }
   slaSnapshot            Json // SlaRule[]
+  escalationSnapshot     Json? // EscalationRule[] — null on versions published before this existed; see EscalationRule doc comment for the fallback defaults
   publishedAt            DateTime?
   publishedByUserId      String?
   tickets                Ticket[]
@@ -298,10 +319,23 @@ model Ticket {
   comments               Comment[]
   attachments            Attachment[]
 
+  // ── Escalation to the department manager (DEPT_ADMIN) ─────────────────
+  // See EscalationRule/EscalationReason and sla/notifications modules.
+  // isEscalated stays true after acknowledgement — it's ticket HISTORY, not
+  // a live alert flag; escalationAcknowledgedAt is what active-queue
+  // queries (dashboards, notification fan-out) actually filter on.
+  isEscalated                    Boolean   @default(false)
+  escalatedAt                    DateTime?
+  escalationReason               String? // SLA_BREACH | MANUAL | REASSIGNMENT_THRESHOLD
+  escalationAcknowledgedAt       DateTime?
+  escalationAcknowledgedByUserId String? // plain scalar, no relation — same lightweight pattern as Attachment.uploadedByStaffId
+  reassignmentCount              Int       @default(0)
+
   createdAt              DateTime             @default(now())
   updatedAt              DateTime             @updatedAt
 
   @@index([departmentId, statusKey])
+  @@index([departmentId, isEscalated])
   @@index([assignedAgentId])
   @@index([companyId])
   @@index([customerId])

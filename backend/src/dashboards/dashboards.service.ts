@@ -33,6 +33,10 @@ export class DashboardsService {
         assignedAgentId: true,
         assignedAgent: { select: { id: true, name: true } },
         ticketTypeVersion: { select: { statusSchemaSnapshot: true } },
+        isEscalated: true,
+        escalatedAt: true,
+        escalationReason: true,
+        escalationAcknowledgedAt: true,
       },
     });
 
@@ -99,6 +103,26 @@ export class DashboardsService {
         ageHours: Math.round((now.getTime() - t.createdAt.getTime()) / 3_600_000),
       }));
 
+    // ── Escalations ────────────────────────────────────────────────────
+    // isEscalated stays true forever once set (it's ticket history — see
+    // tickets.service.ts) — "active" here means "still needs a manager's
+    // attention", i.e. not yet acknowledged.
+    const escalated = tickets.filter((t) => t.isEscalated);
+    const activeEscalations = escalated.filter((t) => !t.escalationAcknowledgedAt);
+    const escalationQueue = [...activeEscalations]
+      .sort((a, b) => (b.escalatedAt?.getTime() ?? 0) - (a.escalatedAt?.getTime() ?? 0))
+      .slice(0, 10)
+      .map((t) => ({
+        id: t.id,
+        ticketNumber: t.ticketNumber,
+        subject: t.subject,
+        priority: t.priority,
+        statusLabel: statusLabel(t),
+        assignedAgentName: t.assignedAgent?.name ?? 'Unassigned',
+        escalationReason: t.escalationReason,
+        escalatedAt: t.escalatedAt,
+      }));
+
     return {
       departmentKey: department.key,
       totals: { open: openTickets.length, total: tickets.length },
@@ -106,6 +130,8 @@ export class DashboardsService {
       slaSummary: { onTrack: Math.max(onTrack, 0), responseBreached, resolutionBreached, noSlaRule },
       agentWorkload: [...workload.values()].sort((a, b) => b.openCount - a.openCount),
       aging,
+      escalations: { active: activeEscalations.length, acknowledged: escalated.length - activeEscalations.length },
+      escalationQueue,
     };
   }
 }

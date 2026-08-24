@@ -96,6 +96,7 @@ export function DepartmentDashboardPage() {
             <StatCard icon={<CheckIcon />} tone="good" value={data.slaSummary.onTrack} label="On track" />
             <StatCard icon={<ClockIcon />} tone="warn" value={data.slaSummary.responseBreached} label="Response SLA breached" />
             <StatCard icon={<AlertIcon />} tone="danger" value={data.slaSummary.resolutionBreached} label="Resolution SLA breached" />
+            <StatCard icon={<FlagIcon />} tone="danger" value={data.escalations.active} label="Escalated" />
           </div>
 
           <section className="dash-card ai-insights-card">
@@ -180,6 +181,43 @@ export function DepartmentDashboardPage() {
               </tbody>
             </table>
           </section>
+
+          <section className="dash-card dash-card-wide">
+            <h2>🚩 Active escalations</h2>
+            <table className="ticket-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Subject</th>
+                  <th>Reason</th>
+                  <th>Priority</th>
+                  <th>Assignee</th>
+                  <th>Escalated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.escalationQueue.map((t) => (
+                  <tr key={t.id} className="ticket-row-escalated">
+                    <td className="ticket-id-cell">{agingDisplayId(data.departmentKey, t.ticketNumber)}</td>
+                    <td>{t.subject}</td>
+                    <td>{t.escalationReason?.replace(/_/g, ' ').toLowerCase() ?? '—'}</td>
+                    <td>
+                      <span className={`priority-chip priority-${t.priority.toLowerCase()}`}>{t.priority}</span>
+                    </td>
+                    <td>{t.assignedAgentName}</td>
+                    <td>{t.escalatedAt ? new Date(t.escalatedAt).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+                {data.escalationQueue.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="empty-row">
+                      Nothing escalated right now.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
         </>
       )}
     </div>
@@ -245,6 +283,14 @@ function AlertIcon() {
       <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+function FlagIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1Z" />
+      <line x1="4" y1="22" x2="4" y2="15" />
     </svg>
   );
 }
