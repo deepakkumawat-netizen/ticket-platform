@@ -29,6 +29,15 @@ export class UsersController {
     return this.users.search(staff.orgId, query);
   }
 
+  // "How many people use this tool, and who are they" — SUPER_ADMIN only.
+  // A distinct route from the search() picker above: that one is capped at
+  // 20/active-only for autocomplete, this one is the full unfiltered roster.
+  @Get('users/directory')
+  @Roles(StaffRole.SUPER_ADMIN)
+  directory(@CurrentStaff() staff: StaffJwtPayload) {
+    return this.users.listAll(staff.orgId);
+  }
+
   // Onboarding: the only way a login gets created in this v1 (no
   // self-signup). SUPER_ADMIN only — see UsersService.create for the
   // per-role departmentId rules.

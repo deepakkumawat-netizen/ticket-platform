@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { AuthMethod, PrincipalType, StaffRole } from '@ticket-platform/shared';
@@ -11,6 +12,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private config: ConfigService,
   ) {}
 
   async validateStaff(email: string, password: string) {
@@ -33,7 +35,21 @@ export class AuthService {
   // Single-org assumption: this app has never had more than the one seeded
   // Organization, so signup just attaches to whichever org exists rather
   // than asking the person to pick/create one.
+  //
+  // Restricted to a company email domain — email uniqueness alone stops
+  // someone reusing the SAME address twice, but not someone registering a
+  // second identity under a different personal email (e.g. Gmail) with a
+  // different name. Requiring the real work address closes that loophole.
   async signupEmployee(dto: SignupDto) {
+    const allowedDomains = (this.config.get<string>('SIGNUP_ALLOWED_EMAIL_DOMAINS') ?? 'codevidhya.com')
+      .split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean);
+    const emailDomain = dto.email.split('@')[1]?.toLowerCase();
+    if (!emailDomain || !allowedDomains.includes(emailDomain)) {
+      throw new BadRequestException(`Please sign up with your work email (@${allowedDomains.join(', @')})`);
+    }
+
     if (await this.prisma.user.findUnique({ where: { email: dto.email } })) {
       throw new ConflictException('An account with this email already exists');
     }

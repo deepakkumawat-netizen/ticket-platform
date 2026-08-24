@@ -65,6 +65,8 @@ services:
         sync: false # paste a key from aistudio.google.com/apikey — AI features (backend/src/ai) 400 with a clear message until this is set
       - key: GEMINI_MODEL
         value: gemini-3.7-flash # override here if this default is ever wrong/retired — see gemini.service.ts
+      - key: SIGNUP_ALLOWED_EMAIL_DOMAINS
+        value: codevidhya.com # comma-separated; public EMPLOYEE self-signup (auth.service.ts) only accepts these domains
       # Escalation-notification emails (backend/src/notifications/mailer.service.ts).
       # Leaving these unset is safe — MailerService just logs and skips
       # sending instead of throwing. Using Gmail: smtp.gmail.com / 587 /

@@ -46,9 +46,14 @@ export function StaffLayout() {
                 <PlusIcon /> New Ticket
               </NavLink>
               {isSuperAdmin && (
-                <NavLink to="/app/team/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                  <UserPlusIcon /> Add Team Member
-                </NavLink>
+                <>
+                  <NavLink to="/app/team" end className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                    <UsersIcon /> Team Directory
+                  </NavLink>
+                  <NavLink to="/app/team/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                    <UserPlusIcon /> Add Team Member
+                  </NavLink>
+                </>
               )}
             </>
           )}
@@ -171,6 +176,17 @@ function PlusIcon() {
       <circle cx="12" cy="12" r="9" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function UsersIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   );
 }

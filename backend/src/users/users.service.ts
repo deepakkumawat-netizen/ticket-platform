@@ -53,6 +53,26 @@ export class UsersService {
     });
   }
 
+  // Full org-wide roster for the SUPER_ADMIN "who uses this tool" screen —
+  // deliberately unfiltered (includes inactive accounts, unpaginated,
+  // ordered by role so the counts group visibly) unlike search() below,
+  // which is a capped/active-only picker for a completely different purpose.
+  listAll(orgId: string) {
+    return this.prisma.user.findMany({
+      where: { orgId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        department: { select: { key: true, name: true } },
+      },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    });
+  }
+
   // Org-wide staff search — feeds the "who is this ticket for" requester
   // picker on ticket creation for an internal-helpdesk setup, where the
   // requester is a colleague, not an external Customer. Deliberately not

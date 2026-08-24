@@ -144,6 +144,16 @@ export type DashboardData = {
   }[];
 };
 
+export type DirectoryUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  createdAt: string;
+  department: { key: string; name: string } | null;
+};
+
 export type NotificationItem = {
   id: string;
   type: string; // 'TICKET_ESCALATED' (urgent) | 'TICKET_MANAGER_FYI' (calm, no action needed)
@@ -277,4 +287,6 @@ export const api = {
       '/users',
       { method: 'POST', body: JSON.stringify(dto), token },
     ),
+  // "How many people use this tool" — SUPER_ADMIN only, unfiltered roster.
+  listUserDirectory: (token: string | null) => request<DirectoryUser[]>('/users/directory', { token }),
 };

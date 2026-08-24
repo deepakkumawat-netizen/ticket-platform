@@ -9,6 +9,7 @@ import { MyTicketsPage } from './features/tickets/MyTicketsPage';
 import { RaiseTicketPage } from './features/tickets/RaiseTicketPage';
 import { MyTicketDetailPage } from './features/tickets/MyTicketDetailPage';
 import { CreateUserPage } from './features/admin/CreateUserPage';
+import { UserDirectoryPage } from './features/admin/UserDirectoryPage';
 import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
 import { RequireAuth } from './app/RequireAuth';
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/app/my-tickets" element={<MyTicketsPage />} />
           <Route path="/app/my-tickets/new" element={<RaiseTicketPage />} />
           <Route path="/app/my-tickets/:id" element={<MyTicketDetailPage />} />
+          <Route path="/app/team" element={<UserDirectoryPage />} />
           <Route path="/app/team/new" element={<CreateUserPage />} />
         </Route>
       </Route>
