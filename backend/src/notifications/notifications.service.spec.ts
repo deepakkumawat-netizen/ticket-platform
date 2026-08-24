@@ -66,3 +66,19 @@ describe('NotificationsService.markRead', () => {
     await expect(service.markRead('me', 'n-1')).rejects.toThrow(NotFoundException);
   });
 });
+
+// Backs the "acknowledging a ticket also clears its bell notification" fix —
+// found by testing the live app: acknowledge and mark-read used to be two
+// separate clicks, so a handled escalation kept nagging the bell.
+describe('NotificationsService.markReadForTicket', () => {
+  it('marks unread notifications for that ticket as read, filtering by payload.ticketId', async () => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 2 });
+    const prisma = { notification: { updateMany } };
+    const service = new NotificationsService(prisma as any, { sendMail: jest.fn() } as any);
+    await service.markReadForTicket('ticket-1');
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { readAt: null, payload: { path: ['ticketId'], equals: 'ticket-1' } },
+      data: { readAt: expect.any(Date) },
+    });
+  });
+});

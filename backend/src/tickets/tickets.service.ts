@@ -331,6 +331,9 @@ export class TicketsService {
         entityId: id,
       },
     });
+    // Handling the ticket IS handling the alert — don't make the manager
+    // separately hunt down and click the bell notification too.
+    await this.notifications.markReadForTicket(id);
 
     return updated;
   }

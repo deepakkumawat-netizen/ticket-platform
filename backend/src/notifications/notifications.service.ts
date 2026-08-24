@@ -84,4 +84,16 @@ export class NotificationsService {
     }
     return this.prisma.notification.update({ where: { id }, data: { readAt: new Date() } });
   }
+
+  /** Called from tickets.service.ts's acknowledgeEscalation() — once a
+   * manager has handled a ticket, the notification that told them about it
+   * shouldn't keep nagging the bell. Marks every unread notification that
+   * references this ticket (any type — escalation or FYI) as read, for
+   * whoever received it, not just the person who clicked Acknowledge. */
+  async markReadForTicket(ticketId: string): Promise<void> {
+    await this.prisma.notification.updateMany({
+      where: { readAt: null, payload: { path: ['ticketId'], equals: ticketId } },
+      data: { readAt: new Date() },
+    });
+  }
 }

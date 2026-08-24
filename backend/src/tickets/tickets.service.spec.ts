@@ -31,6 +31,7 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
   const updateCalls: any[] = [];
   const auditLogCalls: any[] = [];
   const notifyDepartmentManagers = jest.fn().mockResolvedValue(undefined);
+  const markReadForTicket = jest.fn().mockResolvedValue(undefined);
   const prisma = {
     ticket: {
       findUnique: jest.fn().mockResolvedValue(ticket),
@@ -44,9 +45,9 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
-  const notifications = { notifyDepartmentManagers };
+  const notifications = { notifyDepartmentManagers, markReadForTicket };
   const service = new TicketsService(prisma as any, {} as any, notifications as any);
-  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers };
+  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket };
 }
 
 describe('TicketsService.assign — reassignment-threshold escalation', () => {
@@ -139,6 +140,12 @@ describe('TicketsService.acknowledgeEscalation', () => {
     await service.acknowledgeEscalation(STAFF, 'ticket-1');
     expect(updateCalls[0].escalationAcknowledgedByUserId).toBe(STAFF.sub);
     expect(updateCalls[0].escalationAcknowledgedAt).toBeInstanceOf(Date);
+  });
+
+  it('also clears the related notification so the bell stops nagging once handled', async () => {
+    const { service, markReadForTicket } = makeService(makeTicket({ isEscalated: true }));
+    await service.acknowledgeEscalation(STAFF, 'ticket-1');
+    expect(markReadForTicket).toHaveBeenCalledWith('ticket-1');
   });
 });
 
