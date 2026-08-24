@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, staffToken, staffUser } from '../../lib/api';
 import { getRecaptchaToken } from '../../lib/recaptcha';
+import { RecaptchaDisclosure } from '../../components/RecaptchaDisclosure';
 import { AuthShell } from './AuthShell';
 
 // Public, EMPLOYEE-only — see auth.service.ts's signupEmployee. Anyone can
@@ -63,6 +64,7 @@ export function StaffSignupPage() {
       <p className="auth-switch">
         Already have an account? <Link to="/staff/login">Sign in</Link>
       </p>
+      <RecaptchaDisclosure />
     </AuthShell>
   );
 }

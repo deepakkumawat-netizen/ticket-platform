@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, customerToken } from '../../lib/api';
 import { getRecaptchaToken } from '../../lib/recaptcha';
+import { RecaptchaDisclosure } from '../../components/RecaptchaDisclosure';
 
 export function PortalLoginPage() {
   const [email, setEmail] = useState('');
@@ -37,6 +38,7 @@ export function PortalLoginPage() {
         {error && <p className="error">{error}</p>}
         <button type="submit">Sign in</button>
       </form>
+      <RecaptchaDisclosure />
     </div>
   );
 }

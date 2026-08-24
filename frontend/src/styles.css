@@ -1100,6 +1100,28 @@ body {
   font-size: 14px;
 }
 
+/* Google's reCAPTCHA v3 badge floats over EVERY page for the rest of the
+   browser session once loaded (this is a single-page app — the script tag
+   persists across client-side route changes, so it doesn't just disappear
+   after leaving the login page). Hiding it is allowed by Google's terms
+   only if the required disclosure text is shown near the protected form
+   instead — see .recaptcha-disclosure on the login/signup pages. */
+.grecaptcha-badge {
+  visibility: hidden;
+}
+
+.recaptcha-disclosure {
+  color: #94a3b8;
+  font-size: 11px;
+  text-align: center;
+  margin-top: 12px;
+}
+
+.recaptcha-disclosure a {
+  color: #94a3b8;
+  text-decoration: underline;
+}
+
 .language-warning {
   background: #fef3c7;
   color: #b45309;
