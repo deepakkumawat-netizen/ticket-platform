@@ -16,7 +16,22 @@ dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  app.use(helmet());
+  // Default helmet CSP is script-src/frame-src 'self' only — that silently
+  // blocked Google's reCAPTCHA script (auth/recaptcha.service.ts) from ever
+  // loading, no console error a typical user would notice, just a missing
+  // token → every login rejected with "Bot check failed". Explicitly allow
+  // just the two Google hosts reCAPTCHA v3 needs, nothing broader.
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", 'https://www.google.com/recaptcha/', 'https://www.gstatic.com/recaptcha/'],
+          'frame-src': ["'self'", 'https://www.google.com/recaptcha/', 'https://recaptcha.google.com/recaptcha/'],
+        },
+      },
+    }),
+  );
   // CORS_ORIGIN is a comma-separated allowlist. In production the frontend
   // is served from this same process/origin (see ServeStaticModule below),
   // so this mainly matters for local dev (Vite on :5173) and any standalone
