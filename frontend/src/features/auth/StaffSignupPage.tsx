@@ -36,22 +36,22 @@ export function StaffSignupPage() {
 
   return (
     <AuthShell title="Create your account" subtitle="For raising and tracking your own tickets — support staff accounts are created by an admin.">
-      <form className="auth-form" onSubmit={onSubmit}>
+      <form className="auth-form" onSubmit={onSubmit} autoComplete="off">
         <label>
           Name
-          <input value={name} onChange={(e) => setName(e.target.value)} required />
+          <input value={name} onChange={(e) => setName(e.target.value)} required autoComplete="off" />
         </label>
         <label>
           Work email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="off" />
         </label>
         <label>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required autoComplete="new-password" />
         </label>
         <label>
           Confirm password
-          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={8} required />
+          <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} minLength={8} required autoComplete="new-password" />
         </label>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting}>

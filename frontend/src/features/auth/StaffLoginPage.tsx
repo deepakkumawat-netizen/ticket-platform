@@ -28,14 +28,18 @@ export function StaffLoginPage() {
 
   return (
     <AuthShell title="Sign in" subtitle="Use your work account to raise, track, or manage tickets.">
-      <form className="auth-form" onSubmit={onSubmit}>
+      {/* autoComplete="off" on both the form and each field stops the browser
+          from silently pre-filling a previously saved login on page load —
+          important here since staff routinely switch between several test
+          accounts (admin/agent/manager), not just one personal login. */}
+      <form className="auth-form" onSubmit={onSubmit} autoComplete="off">
         <label>
           Email
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus autoComplete="off" />
         </label>
         <label>
           Password
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="off" />
         </label>
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={submitting}>
