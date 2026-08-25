@@ -85,7 +85,13 @@ export class TicketTypesService {
   // (see UpdateFieldDefinitionSchema in packages/shared) — that's the whole
   // enforcement for "never rename/retype a published field key".
 
-  addField(ticketTypeDefinitionId: string, data: CreateFieldDefinition) {
+  // key is unique per definition (@@unique([ticketTypeDefinitionId, key])) —
+  // pre-check rather than let a duplicate (e.g. a double-clicked "Add
+  // field" in the builder UI) surface as a raw Prisma P2002 500.
+  async addField(ticketTypeDefinitionId: string, data: CreateFieldDefinition) {
+    if (await this.prisma.fieldDefinition.findUnique({ where: { ticketTypeDefinitionId_key: { ticketTypeDefinitionId, key: data.key } } })) {
+      throw new ConflictException(`A field with key "${data.key}" already exists on this ticket type`);
+    }
     return this.prisma.fieldDefinition.create({
       data: { ticketTypeDefinitionId, ...data },
     });
@@ -102,17 +108,38 @@ export class TicketTypesService {
   // gets superseded by adding a corrected one and re-publishing; existing
   // tickets are unaffected either way because they hold a frozen snapshot.
 
-  addStatus(ticketTypeDefinitionId: string, dto: CreateStatusDefinitionDto) {
+  async addStatus(ticketTypeDefinitionId: string, dto: CreateStatusDefinitionDto) {
+    if (await this.prisma.statusDefinition.findUnique({ where: { ticketTypeDefinitionId_key: { ticketTypeDefinitionId, key: dto.key } } })) {
+      throw new ConflictException(`A status with key "${dto.key}" already exists on this ticket type`);
+    }
     return this.prisma.statusDefinition.create({ data: { ticketTypeDefinitionId, ...dto } });
   }
 
-  addTransition(ticketTypeDefinitionId: string, dto: CreateStatusTransitionDto) {
+  async addTransition(ticketTypeDefinitionId: string, dto: CreateStatusTransitionDto) {
+    const exists = await this.prisma.statusTransition.findUnique({
+      where: {
+        ticketTypeDefinitionId_fromStatusKey_toStatusKey: {
+          ticketTypeDefinitionId,
+          fromStatusKey: dto.fromStatusKey,
+          toStatusKey: dto.toStatusKey,
+        },
+      },
+    });
+    if (exists) {
+      throw new ConflictException(`A transition from "${dto.fromStatusKey}" to "${dto.toStatusKey}" already exists`);
+    }
     return this.prisma.statusTransition.create({
       data: { ticketTypeDefinitionId, ...dto, allowedRoles: dto.allowedRoles ?? [] },
     });
   }
 
-  addSlaRule(ticketTypeDefinitionId: string, dto: CreateSlaRuleDto) {
+  async addSlaRule(ticketTypeDefinitionId: string, dto: CreateSlaRuleDto) {
+    const exists = await this.prisma.slaRule.findUnique({
+      where: { ticketTypeDefinitionId_customerType_priority: { ticketTypeDefinitionId, customerType: dto.customerType, priority: dto.priority } },
+    });
+    if (exists) {
+      throw new ConflictException(`An SLA rule for ${dto.customerType} / ${dto.priority} already exists — edit isn't supported yet, so remove the old one via the API first if this needs to change`);
+    }
     return this.prisma.slaRule.create({ data: { ticketTypeDefinitionId, ...dto } });
   }
 
@@ -120,7 +147,13 @@ export class TicketTypesService {
   // requires one. A priority with no rule at all just uses the defaults
   // documented on the EscalationRule Prisma model (escalate on breach, 2
   // reassignments) — see tickets.service.ts/sla-breach-check.service.ts.
-  addEscalationRule(ticketTypeDefinitionId: string, dto: CreateEscalationRuleDto) {
+  async addEscalationRule(ticketTypeDefinitionId: string, dto: CreateEscalationRuleDto) {
+    const exists = await this.prisma.escalationRule.findUnique({
+      where: { ticketTypeDefinitionId_customerType_priority: { ticketTypeDefinitionId, customerType: dto.customerType, priority: dto.priority } },
+    });
+    if (exists) {
+      throw new ConflictException(`An escalation rule for ${dto.customerType} / ${dto.priority} already exists`);
+    }
     return this.prisma.escalationRule.create({ data: { ticketTypeDefinitionId, ...dto } });
   }
 
