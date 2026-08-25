@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CreateFieldDefinition,
   CustomerType,
@@ -27,7 +27,14 @@ export class TicketTypesService {
 
   // ── Ticket type definitions (draft/authoring container) ─────────────────
 
-  createDefinition(departmentId: string, dto: CreateTicketTypeDefinitionDto) {
+  // key is unique per department (@@unique([departmentId, key])) — pre-check
+  // rather than let a duplicate surface as a raw Prisma P2002 (generic 500),
+  // same pattern as users.service.ts's create() and customers.service.ts's
+  // create().
+  async createDefinition(departmentId: string, dto: CreateTicketTypeDefinitionDto) {
+    if (await this.prisma.ticketTypeDefinition.findUnique({ where: { departmentId_key: { departmentId, key: dto.key } } })) {
+      throw new ConflictException(`A ticket type with key "${dto.key}" already exists in this department`);
+    }
     return this.prisma.ticketTypeDefinition.create({
       data: { departmentId, ...dto },
     });

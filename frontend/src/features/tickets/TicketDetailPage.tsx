@@ -47,7 +47,11 @@ export function TicketDetailPage() {
 
   async function onAssign(agentId: string) {
     if (!ticket) return;
-    setTicket(await api.assignTicket(ticket.id, agentId || null, token));
+    try {
+      setTicket(await api.assignTicket(ticket.id, agentId || null, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reassign this ticket');
+    }
   }
 
   async function onTransition(toStatusKey: string) {

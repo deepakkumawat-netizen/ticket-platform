@@ -364,7 +364,20 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       }
     }
 
-    const updated = await this.prisma.ticket.update({ where: { id }, data, include: TICKET_INCLUDE });
+    // Optimistic lock, same as transition() below — without checking
+    // rowVersion here, two agents reassigning the same ticket at nearly the
+    // same moment can race: the second write silently overwrites the first
+    // (including its reassignmentCount bump), instead of the second caller
+    // getting a clean "reload and try again".
+    let updated;
+    try {
+      updated = await this.prisma.ticket.update({ where: { id, rowVersion: ticket.rowVersion }, data, include: TICKET_INCLUDE });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+        throw new ConflictException('This ticket was modified by someone else — reload and try again');
+      }
+      throw err;
+    }
 
     if (willAutoEscalate) {
       await this.prisma.auditLog.create({
