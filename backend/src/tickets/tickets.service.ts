@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { CommentVisibility, Prisma } from '@prisma/client';
 import {
   buildCustomFieldsSchema,
   CustomerType,
@@ -15,6 +15,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { GeminiService } from '../ai/gemini.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { CreateTicketDto } from './dto/create-ticket.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
 
 const TICKET_INCLUDE = {
@@ -26,6 +27,14 @@ const TICKET_INCLUDE = {
   // "TECH-42") shown in the UI — ticketNumber itself is a plain scalar
   // column, already present on every response without being listed here.
   department: { select: { key: true, name: true } },
+};
+
+// staffAuthor is populated for every comment in v1 (agents/employees are all
+// Users) — customerAuthor exists on the model for the dormant /portal/*
+// surface but nothing writes it yet.
+const COMMENT_INCLUDE = {
+  staffAuthor: { select: { id: true, name: true, role: true } },
+  customerAuthor: { select: { id: true, name: true } },
 };
 
 type StatusSchemaSnapshot = {
@@ -318,6 +327,67 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
     return ticket;
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────
+  // Two visibilities: INTERNAL (agent notes, department-only — never shown
+  // to the requester) and PUBLIC (also shown on the requester's own
+  // /my-tickets view). Attachments aren't wired up yet even though the
+  // schema supports them — no file-storage backend exists in this v1.
+
+  async listComments(staff: StaffJwtPayload, ticketId: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    return this.prisma.comment.findMany({
+      where: { ticketId },
+      include: COMMENT_INCLUDE,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addComment(staff: StaffJwtPayload, ticketId: string, dto: CreateCommentDto) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    // Default to INTERNAL — an agent note should never leak to the
+    // requester unless explicitly marked PUBLIC.
+    const visibility = dto.visibility ?? CommentVisibility.INTERNAL;
+    const comment = await this.prisma.comment.create({
+      data: { ticketId, staffAuthorId: staff.sub, visibility, body: dto.body },
+      include: COMMENT_INCLUDE,
+    });
+    // A PUBLIC reply is a real response to the requester — stamp
+    // firstRespondedAt here too, not just on the first status move (see
+    // transition()'s comment on why that was the only signal before
+    // comments existed). An INTERNAL note isn't a response, so it doesn't count.
+    if (visibility === CommentVisibility.PUBLIC && !ticket.firstRespondedAt) {
+      await this.prisma.ticket.update({ where: { id: ticketId }, data: { firstRespondedAt: new Date() } });
+    }
+    return comment;
+  }
+
+  // Employee self-service equivalents — reuse getMineOrThrow's ownership
+  // check (am I the requester) rather than assertStaffCanAccessTicket
+  // (department membership), same split as listMine/getMineOrThrow above.
+  // INTERNAL comments are never returned here, and a posted comment is
+  // always PUBLIC — never taken from the client.
+
+  async listMyComments(staff: StaffJwtPayload, ticketId: string) {
+    await this.getMineOrThrow(staff, ticketId);
+    return this.prisma.comment.findMany({
+      where: { ticketId, visibility: CommentVisibility.PUBLIC },
+      include: COMMENT_INCLUDE,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addMyComment(staff: StaffJwtPayload, ticketId: string, dto: CreateCommentDto) {
+    await this.getMineOrThrow(staff, ticketId);
+    return this.prisma.comment.create({
+      data: { ticketId, staffAuthorId: staff.sub, visibility: CommentVisibility.PUBLIC, body: dto.body },
+      include: COMMENT_INCLUDE,
+    });
   }
 
   // ── Assignment ────────────────────────────────────────────────────────

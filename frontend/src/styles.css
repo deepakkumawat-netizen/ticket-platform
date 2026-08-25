@@ -1100,6 +1100,126 @@ body {
   font-size: 14px;
 }
 
+.ai-draft-box button {
+  margin-top: 8px;
+  padding: 6px 12px;
+  border: 1px solid #7c3aed;
+  border-radius: 6px;
+  background: white;
+  color: #6d28d9;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ai-draft-box button:hover {
+  background: #f5f3ff;
+}
+
+/* ── Comments ──────────────────────────────────────────────────────── */
+/* INTERNAL (agent-only) gets a subtle amber left border so it reads as
+   "not visible to the requester" at a glance, without a loud color. */
+
+.ticket-comments {
+  margin-top: 24px;
+}
+
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.comment-empty {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.comment-item {
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #93c5fd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #f8fafc;
+}
+
+.comment-item.comment-internal {
+  border-left-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.comment-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.comment-author {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.comment-visibility-badge {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.comment-visibility-badge.comment-visibility-internal {
+  color: #b45309;
+}
+
+.comment-time {
+  margin-left: auto;
+  color: #94a3b8;
+}
+
+.comment-body {
+  margin: 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.comment-form textarea {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.comment-form-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.comment-visibility-toggle select {
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.comment-form-actions button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.comment-form-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Google's reCAPTCHA v3 badge floats over EVERY page for the rest of the
    browser session once loaded (this is a single-page app — the script tag
    persists across client-side route changes, so it doesn't just disappear

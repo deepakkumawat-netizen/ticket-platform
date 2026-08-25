@@ -14,6 +14,7 @@ import { AssignTicketDto } from './dto/assign-ticket.dto';
 import { TransitionTicketDto } from './dto/transition-ticket.dto';
 import { EscalateTicketDto } from './dto/escalate-ticket.dto';
 import { NotifyManagerDto } from './dto/notify-manager.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 
 // No @Roles restrictions anywhere here — unlike ticket-types (the admin
 // authoring surface), working tickets is the normal job of every staff role
@@ -96,6 +97,20 @@ export class TicketsController {
     return this.tickets.unarchive(staff, id);
   }
 
+  // ── Comments ──────────────────────────────────────────────────────────
+  // Same "any in-department staff role's job" reasoning as assign/transition
+  // above — no @Roles restriction.
+
+  @Get('tickets/:id/comments')
+  listComments(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.listComments(staff, id);
+  }
+
+  @Post('tickets/:id/comments')
+  addComment(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: CreateCommentDto) {
+    return this.tickets.addComment(staff, id, dto);
+  }
+
   // ── Self-service (any staff role, but this is what EMPLOYEE is for) ───
   // Not department-scoped — see tickets.service.ts's createForSelf/listMine/
   // getMineOrThrow, which scope by "am I the requester", not departmentId.
@@ -113,5 +128,15 @@ export class TicketsController {
   @Get('my-tickets/:id')
   getMine(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
     return this.tickets.getMineOrThrow(staff, id);
+  }
+
+  @Get('my-tickets/:id/comments')
+  listMyComments(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.listMyComments(staff, id);
+  }
+
+  @Post('my-tickets/:id/comments')
+  addMyComment(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: CreateCommentDto) {
+    return this.tickets.addMyComment(staff, id, dto);
   }
 }

@@ -157,6 +157,20 @@ export type TicketDetail = TicketSummary & {
   ticketTypeVersion: { statusSchemaSnapshot: { statuses: { key: string; label: string; isTerminal: boolean }[]; transitions: { fromStatusKey: string; toStatusKey: string; allowedRoles: string[] }[] } };
 };
 
+// INTERNAL (agent-only notes) vs PUBLIC (also shown to the requester on
+// their own /my-tickets view) — see backend's tickets.service.ts comment
+// methods. The employee-facing routes only ever return/accept PUBLIC.
+export type CommentVisibility = 'INTERNAL' | 'PUBLIC';
+export type Comment = {
+  id: string;
+  ticketId: string;
+  visibility: CommentVisibility;
+  body: string;
+  createdAt: string;
+  staffAuthor: { id: string; name: string; role: string } | null;
+  customerAuthor: { id: string; name: string } | null;
+};
+
 export type DashboardData = {
   departmentKey: string;
   totals: { open: number; total: number };
@@ -287,6 +301,15 @@ export const api = {
   // changes the ticket itself (see tickets.service.ts's notifyManager).
   notifyManager: (id: string, note: string | undefined, token: string | null) =>
     request<{ ok: true }>(`/tickets/${id}/notify-manager`, { method: 'POST', body: JSON.stringify({ note }), token }),
+
+  // ── Comments ──────────────────────────────────────────────────────────
+  listComments: (ticketId: string, token: string | null) => request<Comment[]>(`/tickets/${ticketId}/comments`, { token }),
+  addComment: (ticketId: string, body: string, visibility: CommentVisibility, token: string | null) =>
+    request<Comment>(`/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify({ body, visibility }), token }),
+  // Employee self-service — always PUBLIC server-side, nothing to pass here.
+  listMyComments: (ticketId: string, token: string | null) => request<Comment[]>(`/my-tickets/${ticketId}/comments`, { token }),
+  addMyComment: (ticketId: string, body: string, token: string | null) =>
+    request<Comment>(`/my-tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify({ body }), token }),
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),

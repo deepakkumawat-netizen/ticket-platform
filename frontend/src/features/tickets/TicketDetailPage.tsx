@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { api, staffToken, staffUser, ticketDisplayId, StaffMember, TicketDetail } from '../../lib/api';
+import { api, staffToken, staffUser, ticketDisplayId, Comment, CommentVisibility, StaffMember, TicketDetail } from '../../lib/api';
 
 export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +14,10 @@ export function TicketDetailPage() {
   const [draft, setDraft] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentBody, setCommentBody] = useState('');
+  const [commentVisibility, setCommentVisibility] = useState<CommentVisibility>('PUBLIC');
+  const [postingComment, setPostingComment] = useState(false);
   // Only present for one page load, right after creation (router state,
   // not persisted) — see api.ts's CreatedTicket / tickets.service.ts's
   // create() comment on why this isn't stored on the ticket itself.
@@ -24,7 +28,13 @@ export function TicketDetailPage() {
     api.getTicket(id, token).then(setTicket).catch((err) => setError(err instanceof Error ? err.message : 'Failed to load ticket'));
   }, [id, token]);
 
+  const loadComments = useCallback(() => {
+    if (!id) return;
+    api.listComments(id, token).then(setComments).catch(() => {});
+  }, [id, token]);
+
   useEffect(() => load(), [load]);
+  useEffect(() => loadComments(), [loadComments]);
 
   useEffect(() => {
     // departmentId isn't in the summary shape TicketDetail carries directly,
@@ -114,9 +124,6 @@ export function TicketDetailPage() {
     }
   }
 
-  // There's no comment/reply feature yet to send this into (see the
-  // workflow doc) — this just gives the agent text to copy into an email
-  // or chat and edit as needed.
   async function onDraftReply() {
     if (!ticket) return;
     setDrafting(true);
@@ -128,6 +135,37 @@ export function TicketDetailPage() {
       setError(err instanceof Error ? err.message : 'Could not draft a reply');
     } finally {
       setDrafting(false);
+    }
+  }
+
+  // Pulls the AI draft into the comment box below instead of just sitting
+  // there as a copy-paste box — still fully editable before posting.
+  function useDraftAsComment() {
+    if (!draft) return;
+    setCommentBody(draft);
+    setCommentVisibility('PUBLIC');
+    setDraft(null);
+  }
+
+  async function onPostComment(e: FormEvent) {
+    e.preventDefault();
+    if (!ticket || !commentBody.trim()) return;
+    setPostingComment(true);
+    setError(null);
+    try {
+      const comment = await api.addComment(ticket.id, commentBody.trim(), commentVisibility, token);
+      setComments((prev) => [...prev, comment]);
+      setCommentBody('');
+      if (commentVisibility === 'PUBLIC' && !ticket.firstRespondedAt) {
+        // Mirrors the backend's own side effect (addComment stamps
+        // firstRespondedAt on the first PUBLIC reply) — refetch so the SLA
+        // panel below reflects it without a manual reload.
+        load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not post this comment');
+    } finally {
+      setPostingComment(false);
     }
   }
 
@@ -223,10 +261,56 @@ export function TicketDetailPage() {
         </button>
         {draft && (
           <div className="ai-draft-box">
-            <p className="dash-subtitle">Suggested reply — copy and edit as needed, there's no send-from-here yet:</p>
+            <p className="dash-subtitle">Suggested reply — review before sending, AI can get things wrong:</p>
             <textarea readOnly value={draft} rows={6} />
+            <button type="button" onClick={useDraftAsComment}>
+              Use as reply below
+            </button>
           </div>
         )}
+      </section>
+
+      <section className="ticket-comments">
+        <h2>Comments</h2>
+        <div className="comment-list">
+          {comments.length === 0 && <p className="comment-empty">No comments yet.</p>}
+          {comments.map((c) => (
+            <div key={c.id} className={`comment-item comment-${c.visibility.toLowerCase()}`}>
+              <div className="comment-item-head">
+                <span className="comment-author">
+                  {c.staffAuthor?.name ?? c.customerAuthor?.name ?? 'Unknown'}
+                  {c.staffAuthor && ` (${c.staffAuthor.role.replace('_', ' ')})`}
+                </span>
+                <span className={`comment-visibility-badge comment-visibility-${c.visibility.toLowerCase()}`}>
+                  {c.visibility === 'INTERNAL' ? '🔒 Internal note' : '💬 Reply to requester'}
+                </span>
+                <span className="comment-time">{new Date(c.createdAt).toLocaleString()}</span>
+              </div>
+              <p className="comment-body">{c.body}</p>
+            </div>
+          ))}
+        </div>
+
+        <form className="comment-form" onSubmit={onPostComment}>
+          <textarea
+            value={commentBody}
+            onChange={(e) => setCommentBody(e.target.value)}
+            rows={3}
+            placeholder="Write a reply to the requester, or an internal note for the team…"
+            required
+          />
+          <div className="comment-form-actions">
+            <label className="comment-visibility-toggle">
+              <select value={commentVisibility} onChange={(e) => setCommentVisibility(e.target.value as CommentVisibility)}>
+                <option value="PUBLIC">💬 Reply to requester</option>
+                <option value="INTERNAL">🔒 Internal note (team only)</option>
+              </select>
+            </label>
+            <button type="submit" disabled={postingComment || !commentBody.trim()}>
+              {postingComment ? 'Posting…' : 'Post'}
+            </button>
+          </div>
+        </form>
       </section>
 
       {Object.keys(ticket.customFields).length > 0 && (
