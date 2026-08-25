@@ -1369,6 +1369,74 @@ body {
   color: #94a3b8;
 }
 
+/* ── Bulk AI Assist ────────────────────────────────────────────────── */
+
+.bulk-assist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.bulk-assist-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-assist-card.bulk-assist-approved {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.bulk-assist-card.bulk-assist-skipped {
+  opacity: 0.5;
+}
+
+.bulk-assist-card.bulk-assist-error {
+  border-color: #fecaca;
+}
+
+.bulk-assist-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bulk-assist-draft {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.bulk-assist-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bulk-assist-actions button {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bulk-assist-skip {
+  background: #e2e8f0 !important;
+  color: #475569 !important;
+}
+
 /* Google's reCAPTCHA v3 badge floats over EVERY page for the rest of the
    browser session once loaded (this is a single-page app — the script tag
    persists across client-side route changes, so it doesn't just disappear

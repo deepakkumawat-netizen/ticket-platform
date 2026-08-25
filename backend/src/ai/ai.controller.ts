@@ -53,4 +53,13 @@ export class AiController {
   chat(@CurrentStaff() staff: StaffJwtPayload, @Body() dto: ChatDto) {
     return this.ai.chat(staff, dto.message, dto.history);
   }
+
+  // Queue-management work (like insights above), not an EMPLOYEE self-
+  // service route — this is deliberately scoped by real department access,
+  // not the EMPLOYEE bypass triage/insights use elsewhere in this file.
+  @Post('departments/:departmentId/ai/bulk-assist')
+  bulkAssist(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
+    assertDepartmentAccess(staff, departmentId);
+    return this.ai.bulkAssist(departmentId);
+  }
 }

@@ -3,6 +3,7 @@ import { StaffLoginPage } from './features/auth/StaffLoginPage';
 import { StaffSignupPage } from './features/auth/StaffSignupPage';
 import { PortalLoginPage } from './features/auth/PortalLoginPage';
 import { TicketListPage } from './features/tickets/TicketListPage';
+import { BulkAssistPage } from './features/tickets/BulkAssistPage';
 import { NewTicketPage } from './features/tickets/NewTicketPage';
 import { TicketDetailPage } from './features/tickets/TicketDetailPage';
 import { MyTicketsPage } from './features/tickets/MyTicketsPage';
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/app" element={<AppIndex />} />
           <Route path="/app/dashboard" element={<DepartmentDashboardPage />} />
           <Route path="/app/tickets" element={<TicketListPage />} />
+          <Route path="/app/bulk-assist" element={<BulkAssistPage />} />
           <Route path="/app/tickets/new" element={<NewTicketPage />} />
           <Route path="/app/tickets/:id" element={<TicketDetailPage />} />
           <Route path="/app/my-tickets" element={<MyTicketsPage />} />

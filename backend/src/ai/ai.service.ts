@@ -9,6 +9,15 @@ import { GeminiService } from './gemini.service';
 type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
 type LanguageCheckResult = { flagged: boolean; reason: string };
 type ChatTurn = { role: 'user' | 'assistant'; text: string };
+type BulkAssistItem = {
+  ticketId: string;
+  displayId: string;
+  subject: string;
+  priority: string;
+  currentAssigneeName: string | null;
+  draft: string | null; // null if the draft-reply call itself failed (e.g. Gemini outage) — that one ticket just gets no draft, the rest of the batch is unaffected
+  suggestedAgent: { agentId: string; name: string; reasoning: string } | null;
+};
 
 @Injectable()
 export class AiService {
@@ -91,10 +100,23 @@ Description: ${description}`;
 
   // ── Response-drafting agent ─────────────────────────────────────────
   // Also human-in-the-loop: returns text for an agent to read, edit, and
-  // send themselves (there's no comment/reply feature built yet — see the
-  // workflow doc — so this has nowhere to auto-send to regardless).
+  // send themselves (post it as a PUBLIC comment — see comments, added
+  // 2026-08-25 — or ignore it and write their own reply from scratch).
   async draftReply(staff: StaffJwtPayload, ticketId: string): Promise<{ draft: string }> {
     const ticket = await this.tickets.getByIdOrThrow(staff, ticketId);
+    return { draft: await this.buildDraftReply(ticket) };
+  }
+
+  // Shared by draftReply above and bulkAssist below — same prompt whether
+  // it's requested for one ticket or generated for a whole batch at once.
+  private async buildDraftReply(ticket: {
+    subject: string;
+    priority: string;
+    statusKey: string;
+    description: string;
+    customFields: unknown;
+    ticketTypeVersion: { statusSchemaSnapshot: unknown };
+  }): Promise<string> {
     // statusSchemaSnapshot/customFields are Prisma Json columns — typed as
     // JsonValue, not their real shape; same cast pattern as tickets.service.ts.
     const statusSchema = ticket.ticketTypeVersion.statusSchemaSnapshot as unknown as {
@@ -113,7 +135,85 @@ Current status: ${statusLabel}
 Description: ${ticket.description}
 ${Object.keys(customFields).length ? `Additional details: ${JSON.stringify(customFields)}` : ''}`;
 
-    return { draft: await this.gemini.generateText(prompt) };
+    return this.gemini.generateText(prompt);
+  }
+
+  // ── Bulk assist (multiple tickets at once, still human-approved) ────
+  // Deepak's ask (2026-08-25): handle many open tickets in one pass instead
+  // of one at a time. Runs draftReply + the same auto-assign scoring
+  // create() uses, for every open/not-yet-responded ticket in a
+  // department, IN PARALLEL — but applies nothing itself. The frontend
+  // shows each suggestion for a human to edit/approve/skip; approving
+  // calls the exact same addComment/assign endpoints a human would call
+  // by hand. This is still "suggest, never act" — just suggesting for a
+  // whole queue at once instead of one ticket at a time.
+  async bulkAssist(departmentId: string): Promise<{ items: BulkAssistItem[]; truncated: boolean }> {
+    // +1 over the real cap so we can tell "exactly 20 open tickets" apart
+    // from "more than 20" without a second count query.
+    const candidates = await this.prisma.ticket.findMany({
+      where: { departmentId, isArchived: false, resolvedAt: null, firstRespondedAt: null },
+      include: {
+        department: { select: { key: true } },
+        assignedAgent: { select: { id: true, name: true } },
+        ticketTypeVersion: { select: { statusSchemaSnapshot: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 21,
+    });
+    const truncated = candidates.length > 20;
+    if (truncated) candidates.pop();
+    if (candidates.length === 0) return { items: [], truncated: false };
+
+    // NOT Promise.all across every ticket — live-tested against a real
+    // (free-tier) Gemini key, which caps at 5 requests/minute total across
+    // this WHOLE app, not just this endpoint. Firing 2 calls x N tickets at
+    // once blew through that instantly and every call past the first ~2
+    // tickets came back 429, silently, all at once. One ticket at a time
+    // (its own 2 calls still run in parallel), with a pause between —
+    // slower, but each ticket actually gets a real answer instead of
+    // racing every other ticket for the same 5-per-minute budget. A paid
+    // Gemini tier removes this ceiling entirely if that matters more than
+    // this endpoint's own latency.
+    const results: BulkAssistItem[] = [];
+    for (let i = 0; i < candidates.length; i++) {
+      const ticket = candidates[i];
+      if (i > 0) await this.sleep(this.bulkAssistPaceMs);
+      const [draft, suggestedAgent] = await Promise.all([
+        this.buildDraftReply(ticket).catch(() => null),
+        ticket.assignedAgentId ? Promise.resolve(null) : this.tickets.suggestAgent(departmentId, ticket.subject, ticket.description).catch(() => null),
+      ]);
+      let suggestedAgentName: string | null = null;
+      if (suggestedAgent) {
+        const agent = await this.prisma.user.findUnique({ where: { id: suggestedAgent.agentId }, select: { name: true } });
+        suggestedAgentName = agent?.name ?? null;
+      }
+      results.push({
+        ticketId: ticket.id,
+        displayId: `${ticket.department.key}-${ticket.ticketNumber}`,
+        subject: ticket.subject,
+        priority: ticket.priority,
+        currentAssigneeName: ticket.assignedAgent?.name ?? null,
+        draft,
+        suggestedAgent:
+          suggestedAgent && suggestedAgentName
+            ? { agentId: suggestedAgent.agentId, name: suggestedAgentName, reasoning: suggestedAgent.reasoning }
+            : null,
+      });
+    }
+    // No silent cap: the caller (BulkAssistPage) surfaces `truncated` to the
+    // user rather than quietly covering only the first 20 and looking like
+    // it handled everything.
+    return { items: results, truncated };
+  }
+
+  // Each ticket fires up to 2 calls (draft + suggest-agent) in parallel, so
+  // pacing needs (2 calls / 5-per-minute) x 60s = 24s minimum to stay under
+  // a free-tier Gemini key's quota (shared across the whole app, not just
+  // this endpoint) — 25s for a small safety margin. A private field (not a
+  // literal inline) so tests can override it to 0.
+  private bulkAssistPaceMs = 25_000;
+  private sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // ── Dashboard-insights agent ─────────────────────────────────────────

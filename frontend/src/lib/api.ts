@@ -236,6 +236,15 @@ export type TicketDetail = TicketSummary & {
 // their own /my-tickets view) — see backend's tickets.service.ts comment
 // methods. The employee-facing routes only ever return/accept PUBLIC.
 export type ChatTurn = { role: 'user' | 'assistant'; text: string };
+export type BulkAssistItem = {
+  ticketId: string;
+  displayId: string;
+  subject: string;
+  priority: string;
+  currentAssigneeName: string | null;
+  draft: string | null;
+  suggestedAgent: { agentId: string; name: string; reasoning: string } | null;
+};
 
 export type CommentVisibility = 'INTERNAL' | 'PUBLIC';
 // One step on the ticket's tracking timeline — see tickets.service.ts's
@@ -501,6 +510,12 @@ export const api = {
     request<{ draft: string }>(`/tickets/${ticketId}/ai/draft-reply`, { method: 'POST', token }),
   getDashboardInsights: (departmentId: string, token: string | null) =>
     request<{ summary: string }>(`/departments/${departmentId}/ai/insights`, { token }),
+  // "Handle many tickets at once" (Deepak's ask, 2026-08-25) — drafts a
+  // reply and suggests an assignee for every open, not-yet-responded
+  // ticket in one department in parallel. Purely suggestions: nothing is
+  // applied until each one is approved (see api.assignTicket/addComment).
+  bulkAssist: (departmentId: string, token: string | null) =>
+    request<{ items: BulkAssistItem[]; truncated: boolean }>(`/departments/${departmentId}/ai/bulk-assist`, { method: 'POST', token }),
   // Warn-not-block: flags inappropriate language but never prevents
   // submission — see ai.service.ts's checkLanguage.
   checkLanguage: (subject: string, description: string, token: string | null) =>

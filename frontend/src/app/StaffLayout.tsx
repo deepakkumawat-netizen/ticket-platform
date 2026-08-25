@@ -47,6 +47,9 @@ export function StaffLayout() {
               <NavLink to="/app/tickets/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <PlusIcon /> New Ticket
               </NavLink>
+              <NavLink to="/app/bulk-assist" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                <SparkleIcon /> Bulk AI Assist
+              </NavLink>
               {(isSuperAdmin || isDeptAdmin) && (
                 <NavLink to="/app/ticket-types" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                   <BuildingIcon /> Ticket Types
@@ -177,6 +180,14 @@ function TicketIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4Z" />
       <line x1="12" y1="6" x2="12" y2="18" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6" />
     </svg>
   );
 }

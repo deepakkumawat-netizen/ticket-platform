@@ -288,6 +288,13 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     }
   }
 
+  // Public wrapper around pickBestAgent above — lets ai.service.ts's
+  // bulk-assist reuse the exact same candidate-scoring logic create()
+  // already uses internally, instead of duplicating it.
+  async suggestAgent(departmentId: string, subject: string, description: string) {
+    return this.pickBestAgent(departmentId, subject, description);
+  }
+
   // ── Self-service (EMPLOYEE role) ─────────────────────────────────────
   // Deliberately thin wrappers around create()/the customer-scoping idea
   // above — an employee raising their own ticket is the exact same write
