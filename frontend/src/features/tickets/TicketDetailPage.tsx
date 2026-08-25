@@ -37,12 +37,14 @@ export function TicketDetailPage() {
   useEffect(() => loadComments(), [loadComments]);
 
   useEffect(() => {
-    // departmentId isn't in the summary shape TicketDetail carries directly,
-    // but assignment needs the department's staff list — fetch it once we
-    // know who's assigned (or just from the logged-in staff's own department
-    // for the common case where staff work their own department's queue).
-    if (me?.departmentId) api.listDepartmentUsers(me.departmentId, token).then(setStaffMembers);
-  }, [me?.departmentId, token]);
+    // Must be the TICKET's department, not the viewer's own — a SUPER_ADMIN
+    // has no departmentId of their own (org-wide, not scoped to one), so
+    // using me.departmentId here left staffMembers permanently empty for
+    // that role: the "Assigned to" dropdown had only the Unassigned option
+    // to show, so it displayed as unassigned even on a ticket that WAS
+    // assigned (the real assignedAgent.id just had no matching <option>).
+    if (ticket?.departmentId) api.listDepartmentUsers(ticket.departmentId, token).then(setStaffMembers);
+  }, [ticket?.departmentId, token]);
 
   if (error) return <p className="error">{error}</p>;
   if (!ticket) return <p>Loading…</p>;

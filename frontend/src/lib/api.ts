@@ -145,6 +145,12 @@ export type StaffSearchResult = { id: string; name: string; email: string; role:
 export type TicketSummary = {
   id: string;
   ticketNumber: number;
+  // Already on every ticket response as a plain scalar (backend's include:
+  // TICKET_INCLUDE only adds relations, it doesn't restrict scalars away) —
+  // just wasn't declared here before. Needed so a SUPER_ADMIN viewing a
+  // ticket outside their own department (they have none) can still fetch
+  // THAT department's staff list for the assignee dropdown.
+  departmentId: string;
   department: { key: string; name: string };
   subject: string;
   priority: string;
