@@ -91,7 +91,7 @@ export function BulkAssistPage() {
 
   return (
     <div className="page-shell">
-      <h1>🤖 Bulk AI Assist</h1>
+      <h1>✨ Bulk AI Assist</h1>
       <p className="dash-subtitle">
         Drafts a reply and suggests who should work it, for every open ticket that hasn't been responded to yet. Nothing
         sends until you approve it, one at a time or all together. This works through tickets one at a time behind the

@@ -65,6 +65,16 @@ services:
         sync: false # paste a key from aistudio.google.com/apikey — AI features (backend/src/ai) 400 with a clear message until this is set
       - key: GEMINI_MODEL
         value: gemini-3.7-flash # override here if this default is ever wrong/retired — see gemini.service.ts
+      # Fallback AI provider (backend/src/ai/groq.service.ts) — used only
+      # when Gemini fails and this is set. Added because a free-tier Gemini
+      # key caps at 5 requests/minute for the whole app; Groq's free tier is
+      # far more generous. Get a key at console.groq.com/keys (free, no
+      # card needed). Leaving this unset is safe — AI features just keep
+      # relying on Gemini alone, same as before this existed.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile # override here if this default is ever retired — see groq.service.ts
       - key: SIGNUP_ALLOWED_EMAIL_DOMAINS
         value: codevidhya.com # comma-separated; public EMPLOYEE self-signup (auth.service.ts) only accepts these domains
       # Escalation-notification emails (backend/src/notifications/mailer.service.ts).
