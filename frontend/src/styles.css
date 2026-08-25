@@ -1370,6 +1370,70 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Ticket-type builder (admin) ──────────────────────────────────────── */
+
+.builder-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.builder-section h2 {
+  font-size: 1rem;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+.builder-form {
+  margin-top: 14px;
+}
+
+.builder-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.builder-checkbox input {
+  width: auto;
+}
+
+.builder-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.builder-checkbox-group > span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.builder-row-deprecated {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.builder-publish-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #16a34a;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.builder-publish-button:hover {
+  background: #15803d;
+}
+
+.builder-publish-button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
 .recaptcha-disclosure a {
   color: #94a3b8;
   text-decoration: underline;

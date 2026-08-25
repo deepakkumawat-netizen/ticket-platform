@@ -11,6 +11,8 @@ import { MyTicketDetailPage } from './features/tickets/MyTicketDetailPage';
 import { CreateUserPage } from './features/admin/CreateUserPage';
 import { UserDirectoryPage } from './features/admin/UserDirectoryPage';
 import { DepartmentsAdminPage } from './features/admin/DepartmentsAdminPage';
+import { TicketTypesAdminPage } from './features/admin/TicketTypesAdminPage';
+import { TicketTypeBuilderPage } from './features/admin/TicketTypeBuilderPage';
 import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
 import { RequireAuth } from './app/RequireAuth';
@@ -44,6 +46,8 @@ export default function App() {
           <Route path="/app/my-tickets" element={<MyTicketsPage />} />
           <Route path="/app/my-tickets/new" element={<RaiseTicketPage />} />
           <Route path="/app/my-tickets/:id" element={<MyTicketDetailPage />} />
+          <Route path="/app/ticket-types" element={<TicketTypesAdminPage />} />
+          <Route path="/app/ticket-types/:id" element={<TicketTypeBuilderPage />} />
           <Route path="/app/departments" element={<DepartmentsAdminPage />} />
           <Route path="/app/team" element={<UserDirectoryPage />} />
           <Route path="/app/team/new" element={<CreateUserPage />} />

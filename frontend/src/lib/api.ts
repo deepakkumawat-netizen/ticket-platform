@@ -113,6 +113,31 @@ export type TicketTypeDefinitionDetail = {
   versions: { id: string; versionNumber: number; status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' }[];
 };
 
+// ── Ticket-type admin builder (SUPER_ADMIN/DEPT_ADMIN) ──────────────────
+// The low-code engine's authoring surface — fields/statuses/transitions/SLA
+// & escalation rules are append-only in v1 (no edit/delete, see
+// ticket-types.service.ts's comment on why), so there's nothing here to
+// edit either, only "add" forms plus a Publish action.
+export type StatusDefinition = { id: string; key: string; label: string; isInitial: boolean; isTerminal: boolean; order: number };
+export type StatusTransition = { id: string; fromStatusKey: string; toStatusKey: string; allowedRoles: string[] };
+export type SlaRule = { id: string; customerType: CustomerType; priority: string; responseTimeMinutes: number; resolutionTimeMinutes: number };
+export type EscalationRule = { id: string; customerType: CustomerType; priority: string; escalateOnSlaBreach: boolean; reassignmentThreshold: number };
+export type TicketTypeDefinitionAdmin = {
+  id: string;
+  departmentId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  isActive: boolean;
+  fields: (FieldDefinition & { isDeprecated: boolean })[];
+  statuses: StatusDefinition[];
+  transitions: StatusTransition[];
+  slaRules: SlaRule[];
+  escalationRules: EscalationRule[];
+  versions: { id: string; versionNumber: number; status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED' }[];
+};
+export type CustomerType = 'B2B' | 'B2C';
+
 export type CustomerRecord = { id: string; name: string; email: string; phone: string | null; company: { id: string; name: string } | null };
 export type StaffMember = { id: string; name: string; email: string; role: string };
 export type StaffSearchResult = { id: string; name: string; email: string; role: string; departmentId: string | null };
@@ -250,6 +275,44 @@ export const api = {
     request<TicketTypeDefinitionDetail>(`/ticket-types/${id}`, { token }),
   getTicketTypeVersion: (id: string, versionNumber: number, customerType: 'B2B' | 'B2C', token: string | null) =>
     request<TicketTypeVersionForRenderer>(`/ticket-types/${id}/versions/${versionNumber}?customerType=${customerType}`, { token }),
+
+  // ── Ticket-type admin builder (SUPER_ADMIN/DEPT_ADMIN) ─────────────────
+  // Same GET /ticket-types/:id route as getTicketTypeDefinition above — the
+  // backend always returns the full fields/statuses/transitions/SLA/
+  // escalation shape, this just types the wider view the builder page needs.
+  createTicketTypeDefinition: (departmentId: string, dto: { key: string; name: string; description?: string }, token: string | null) =>
+    request<TicketTypeSummary>(`/departments/${departmentId}/ticket-types`, { method: 'POST', body: JSON.stringify(dto), token }),
+  getTicketTypeAdminDetail: (id: string, token: string | null) =>
+    request<TicketTypeDefinitionAdmin>(`/ticket-types/${id}`, { token }),
+  updateTicketTypeDefinition: (id: string, dto: { name?: string; description?: string; isActive?: boolean }, token: string | null) =>
+    request<TicketTypeSummary>(`/ticket-types/${id}`, { method: 'PATCH', body: JSON.stringify(dto), token }),
+  addTicketTypeField: (
+    id: string,
+    dto: { key: string; label: string; fieldType: string; appliesTo: string; required: boolean; options: FieldOption[]; order: number },
+    token: string | null,
+  ) => request<FieldDefinition>(`/ticket-types/${id}/fields`, { method: 'POST', body: JSON.stringify(dto), token }),
+  addTicketTypeStatus: (
+    id: string,
+    dto: { key: string; label: string; isInitial?: boolean; isTerminal?: boolean; order?: number },
+    token: string | null,
+  ) => request<StatusDefinition>(`/ticket-types/${id}/statuses`, { method: 'POST', body: JSON.stringify(dto), token }),
+  addTicketTypeTransition: (
+    id: string,
+    dto: { fromStatusKey: string; toStatusKey: string; allowedRoles?: string[] },
+    token: string | null,
+  ) => request<StatusTransition>(`/ticket-types/${id}/transitions`, { method: 'POST', body: JSON.stringify(dto), token }),
+  addTicketTypeSlaRule: (
+    id: string,
+    dto: { customerType: CustomerType; priority: string; responseTimeMinutes: number; resolutionTimeMinutes: number },
+    token: string | null,
+  ) => request<SlaRule>(`/ticket-types/${id}/sla-rules`, { method: 'POST', body: JSON.stringify(dto), token }),
+  addTicketTypeEscalationRule: (
+    id: string,
+    dto: { customerType: CustomerType; priority: string; escalateOnSlaBreach?: boolean; reassignmentThreshold?: number },
+    token: string | null,
+  ) => request<EscalationRule>(`/ticket-types/${id}/escalation-rules`, { method: 'POST', body: JSON.stringify(dto), token }),
+  publishTicketType: (id: string, token: string | null) =>
+    request<{ id: string; versionNumber: number }>(`/ticket-types/${id}/publish`, { method: 'POST', token }),
 
   listDepartmentUsers: (departmentId: string, token: string | null) =>
     request<StaffMember[]>(`/departments/${departmentId}/users`, { token }),

@@ -11,6 +11,7 @@ export function StaffLayout() {
   const me = staffUser.get();
   const isEmployee = me?.role === 'EMPLOYEE';
   const isSuperAdmin = me?.role === 'SUPER_ADMIN';
+  const isDeptAdmin = me?.role === 'DEPT_ADMIN';
 
   function signOut() {
     staffToken.clear();
@@ -46,6 +47,11 @@ export function StaffLayout() {
               <NavLink to="/app/tickets/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <PlusIcon /> New Ticket
               </NavLink>
+              {(isSuperAdmin || isDeptAdmin) && (
+                <NavLink to="/app/ticket-types" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                  <BuildingIcon /> Ticket Types
+                </NavLink>
+              )}
               {isSuperAdmin && (
                 <>
                   <NavLink to="/app/departments" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
