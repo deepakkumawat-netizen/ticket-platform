@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { api, staffToken, staffUser, ticketDisplayId, Attachment, Comment, CommentVisibility, StaffMember, TicketDetail } from '../../lib/api';
+import { api, staffToken, staffUser, ticketDisplayId, Attachment, Comment, CommentVisibility, HistoryEntry, StaffMember, TicketDetail } from '../../lib/api';
+import { TicketTracker } from './TicketTracker';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -28,6 +29,7 @@ export function TicketDetailPage() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   // Only present for one page load, right after creation (router state,
   // not persisted) — see api.ts's CreatedTicket / tickets.service.ts's
   // create() comment on why this isn't stored on the ticket itself.
@@ -48,9 +50,15 @@ export function TicketDetailPage() {
     api.listAttachments(id, token).then(setAttachments).catch(() => {});
   }, [id, token]);
 
+  const loadHistory = useCallback(() => {
+    if (!id) return;
+    api.getTicketHistory(id, token).then(setHistory).catch(() => {});
+  }, [id, token]);
+
   useEffect(() => load(), [load]);
   useEffect(() => loadComments(), [loadComments]);
   useEffect(() => loadAttachments(), [loadAttachments]);
+  useEffect(() => loadHistory(), [loadHistory]);
 
   useEffect(() => {
     // Must be the TICKET's department, not the viewer's own — a SUPER_ADMIN
@@ -77,6 +85,7 @@ export function TicketDetailPage() {
     if (!ticket) return;
     try {
       setTicket(await api.assignTicket(ticket.id, agentId || null, token));
+      loadHistory(); // assignment is a new tracker step
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reassign this ticket');
     }
@@ -86,6 +95,7 @@ export function TicketDetailPage() {
     if (!ticket) return;
     try {
       setTicket(await api.transitionTicket(ticket.id, toStatusKey, token));
+      loadHistory(); // status change is a new tracker step
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change status');
     }
@@ -95,6 +105,7 @@ export function TicketDetailPage() {
     if (!ticket) return;
     try {
       setTicket(await api.escalateTicket(ticket.id, undefined, token));
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not escalate this ticket');
     }
@@ -104,6 +115,7 @@ export function TicketDetailPage() {
     if (!ticket) return;
     try {
       setTicket(await api.acknowledgeEscalation(ticket.id, token));
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not acknowledge this escalation');
     }
@@ -115,6 +127,7 @@ export function TicketDetailPage() {
     if (!window.confirm('Archive this ticket? It will be hidden from the queue and dashboard, but can be unarchived anytime.')) return;
     try {
       setTicket(await api.archiveTicket(ticket.id, token));
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not archive this ticket');
     }
@@ -124,6 +137,7 @@ export function TicketDetailPage() {
     if (!ticket) return;
     try {
       setTicket(await api.unarchiveTicket(ticket.id, token));
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not unarchive this ticket');
     }
@@ -137,6 +151,7 @@ export function TicketDetailPage() {
     try {
       await api.notifyManager(ticket.id, undefined, token);
       setNotifyMessage('✅ Manager notified — no action needed from them, just keeping them posted.');
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not notify the manager');
     }
@@ -237,6 +252,8 @@ export function TicketDetailPage() {
         {ticket.ticketTypeDefinition.name} · {ticket.customer.name} ({ticket.customer.email})
         {ticket.company && ` · ${ticket.company.name}`} · opened {new Date(ticket.createdAt).toLocaleString()}
       </p>
+
+      <TicketTracker entries={history} />
 
       {ticket.isArchived && (
         <div className="archive-banner">

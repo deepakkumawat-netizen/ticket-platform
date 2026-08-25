@@ -73,8 +73,12 @@ describe('TicketsService.create — AI auto-assign', () => {
     const ticket = await service.create(STAFF, 'dept-tech', BASE_DTO as any);
     expect(ticketCreateCalls[0].assignedAgentId).toBe('agent-2');
     expect(ticket.autoAssignReasoning).toContain('Sam');
-    expect(auditLogCalls[0].action).toBe('TICKET_AUTO_ASSIGNED');
-    expect(auditLogCalls[0].afterJson).toMatchObject({ agentId: 'agent-2' });
+    // Also logs TICKET_CREATED unconditionally (2026-08-25's tracking-history
+    // addition) — look up by action rather than assume index, since that
+    // entry's exact position isn't the point of this test.
+    const autoAssignLog = auditLogCalls.find((c: any) => c.action === 'TICKET_AUTO_ASSIGNED');
+    expect(autoAssignLog?.afterJson).toMatchObject({ agentId: 'agent-2' });
+    expect(auditLogCalls.some((c: any) => c.action === 'TICKET_CREATED')).toBe(true);
   });
 
   it('never overrides an explicit assignedAgentId (Gemini not consulted)', async () => {

@@ -1287,6 +1287,88 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Tracking timeline ("where's my ticket", parcel-tracker style) ──── */
+
+.ticket-tracker {
+  margin: 18px 0 24px;
+  padding: 16px 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.ticket-tracker h2 {
+  font-size: 1rem;
+  color: #475569;
+  margin: 0 0 12px;
+}
+
+.tracker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+
+.tracker-step {
+  display: flex;
+  gap: 12px;
+  padding-bottom: 16px;
+  position: relative;
+}
+
+/* The connecting line down to the next step — skipped on the last one. */
+.tracker-step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 28px;
+  bottom: 0;
+  width: 2px;
+  background: #cbd5e1;
+}
+
+.tracker-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid #cbd5e1;
+  font-size: 14px;
+  z-index: 1;
+}
+
+.tracker-step-current .tracker-icon {
+  border-color: #16a34a;
+  background: #dcfce7;
+}
+
+.tracker-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 3px;
+}
+
+.tracker-step-text {
+  font-size: 14px;
+  color: #334155;
+}
+
+.tracker-step-current .tracker-step-text {
+  font-weight: 700;
+  color: #15803d;
+}
+
+.tracker-step-meta {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
 /* Google's reCAPTCHA v3 badge floats over EVERY page for the rest of the
    browser session once loaded (this is a single-page app — the script tag
    persists across client-side route changes, so it doesn't just disappear

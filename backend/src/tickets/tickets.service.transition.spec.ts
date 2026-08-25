@@ -4,8 +4,8 @@ import { StaffRole } from '@ticket-platform/shared';
 import { TicketsService } from './tickets.service';
 
 // Covers transition() specifically: the firstRespondedAt/resolvedAt
-// stamping rules, and the "email the requester once, on first resolution"
-// behavior added 2026-08-25 alongside connecting SMTP.
+// stamping rules, and the "log + email the requester on every status move"
+// full-tracking behavior added 2026-08-25 alongside connecting SMTP.
 
 const AGENT_TECH = { sub: 'agent-1', principalType: 'STAFF', role: StaffRole.AGENT, departmentId: 'dept-tech', orgId: 'org-1' } as any;
 
@@ -32,6 +32,7 @@ function makeHarness(ticketOverrides: Partial<any> = {}) {
     ticketTypeVersion: { statusSchemaSnapshot: SCHEMA },
     ...ticketOverrides,
   };
+  const auditLogCalls: any[] = [];
   const prisma = {
     ticket: {
       findUnique: jest.fn().mockResolvedValue(ticket),
@@ -49,10 +50,11 @@ function makeHarness(ticketOverrides: Partial<any> = {}) {
         };
       }),
     },
+    auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
   const notifications = { notifyRequester: jest.fn().mockResolvedValue(undefined) };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, {} as any, {} as any);
-  return { service, prisma, notifications, updateCalls };
+  return { service, prisma, notifications, updateCalls, auditLogCalls };
 }
 
 describe('TicketsService.transition', () => {
@@ -89,11 +91,44 @@ describe('TicketsService.transition', () => {
     );
   });
 
-  it('does not re-stamp or re-email on a transition once already resolved', async () => {
+  it('does not re-stamp resolvedAt on a later move once already resolved (but still logs + emails the move)', async () => {
     const { service, updateCalls, notifications } = makeHarness({ statusKey: 'RESOLVED', resolvedAt: new Date('2026-08-20T00:00:00Z') });
     await service.transition(AGENT_TECH, 'ticket-1', 'OPEN');
     expect(updateCalls[0].data).not.toHaveProperty('resolvedAt');
-    expect(notifications.notifyRequester).not.toHaveBeenCalled();
+    // Reopening is still a real status move -- full tracking means it's
+    // still logged and the requester is still told, just not as a
+    // "resolved" email a second time.
+    expect(notifications.notifyRequester).toHaveBeenCalledWith(
+      'alex@codevidhya.com',
+      'TICKET_STATUS_CHANGED',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('logs TICKET_STATUS_CHANGED with the before/after status on every move', async () => {
+    const { service, auditLogCalls } = makeHarness();
+    await service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED');
+    const statusLog = auditLogCalls.find((c) => c.action === 'TICKET_STATUS_CHANGED');
+    expect(statusLog).toMatchObject({ beforeJson: { statusKey: 'OPEN' }, afterJson: { statusKey: 'RESOLVED', label: 'Resolved' } });
+  });
+
+  it('emails a non-terminal move with "moved to X" wording, not resolution wording', async () => {
+    const nonTerminalSchema = {
+      statuses: [
+        { key: 'OPEN', label: 'Open', isInitial: true, isTerminal: false, order: 0 },
+        { key: 'IN_PROGRESS', label: 'In Progress', isInitial: false, isTerminal: false, order: 1 },
+      ],
+      transitions: [{ fromStatusKey: 'OPEN', toStatusKey: 'IN_PROGRESS', allowedRoles: [] }],
+    };
+    const { service, notifications } = makeHarness({ ticketTypeVersion: { statusSchemaSnapshot: nonTerminalSchema } });
+    await service.transition(AGENT_TECH, 'ticket-1', 'IN_PROGRESS');
+    expect(notifications.notifyRequester).toHaveBeenCalledWith(
+      'alex@codevidhya.com',
+      'TICKET_STATUS_CHANGED',
+      expect.anything(),
+      expect.objectContaining({ subject: expect.stringContaining('In Progress') }),
+    );
   });
 
   it('surfaces a concurrent-edit conflict (rowVersion mismatch, P2025) as a clean ConflictException', async () => {

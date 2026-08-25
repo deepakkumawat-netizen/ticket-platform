@@ -22,6 +22,7 @@ function makeTicket(overrides: Partial<any> = {}) {
     subject: 'Something broke',
     department: { key: 'TECH' },
     ticketNumber: 42,
+    customer: { email: 'requester@codevidhya.com' },
     ticketTypeVersion: { escalationSnapshot: null }, // null => defaults (threshold 2, escalateOnSlaBreach true)
     ...overrides,
   };
@@ -32,12 +33,21 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
   const auditLogCalls: any[] = [];
   const notifyDepartmentManagers = jest.fn().mockResolvedValue(undefined);
   const markReadForTicket = jest.fn().mockResolvedValue(undefined);
+  const notifyRequester = jest.fn().mockResolvedValue(undefined);
   const prisma = {
     ticket: {
       findUnique: jest.fn().mockResolvedValue(ticket),
       update: jest.fn().mockImplementation(({ data }) => {
         updateCalls.push(data);
-        return { ...ticket, ...data, department: { key: 'TECH' }, ticketNumber: 42 };
+        return {
+          ...ticket,
+          ...data,
+          department: { key: 'TECH' },
+          ticketNumber: 42,
+          // Mirrors what a real assignedAgentId update would carry back —
+          // enough for assign()'s TICKET_ASSIGNED audit log / email step.
+          assignedAgent: data.assignedAgentId ? { id: data.assignedAgentId, name: 'Assigned Agent' } : null,
+        };
       }),
     },
     user: {
@@ -45,12 +55,12 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
-  const notifications = { notifyDepartmentManagers, markReadForTicket };
+  const notifications = { notifyDepartmentManagers, markReadForTicket, notifyRequester };
   // Not exercised by these tests (create()/auto-assign has its own spec) —
   // just needs to exist so the constructor call type-checks.
   const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any, {} as any);
-  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket };
+  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket, notifyRequester };
 }
 
 describe('TicketsService.assign — reassignment-threshold escalation', () => {
@@ -80,7 +90,10 @@ describe('TicketsService.assign — reassignment-threshold escalation', () => {
     expect(updateCalls[0].reassignmentCount).toBe(2);
     expect(updateCalls[0].isEscalated).toBe(true);
     expect(updateCalls[0].escalationReason).toBe(EscalationReason.REASSIGNMENT_THRESHOLD);
-    expect(auditLogCalls).toHaveLength(1);
+    // 2 now, not 1 -- TICKET_ESCALATED plus the TICKET_ASSIGNED entry every
+    // agent change logs (2026-08-25's tracking-history addition).
+    expect(auditLogCalls).toHaveLength(2);
+    expect(auditLogCalls.map((c: any) => c.action)).toEqual(expect.arrayContaining(['TICKET_ESCALATED', 'TICKET_ASSIGNED']));
     expect(notifyDepartmentManagers).toHaveBeenCalledTimes(1);
   });
 
@@ -109,6 +122,44 @@ describe('TicketsService.assign — reassignment-threshold escalation', () => {
     await service.assign(STAFF, 'ticket-1', 'agent-b');
     expect(updateCalls[0]).not.toHaveProperty('isEscalated');
     expect(notifyDepartmentManagers).not.toHaveBeenCalled();
+  });
+});
+
+// Full tracking-history addition, 2026-08-25: every real assignment change
+// gets logged for the timeline and emails the requester who's now on it.
+describe('TicketsService.assign — tracking history / requester email', () => {
+  it('logs TICKET_ASSIGNED and emails the requester when a real agent is newly assigned', async () => {
+    const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: null }));
+    await service.assign(STAFF, 'ticket-1', 'agent-b');
+    expect(auditLogCalls).toHaveLength(1);
+    expect(auditLogCalls[0]).toMatchObject({ action: 'TICKET_ASSIGNED', afterJson: { agentId: 'agent-b', agentName: 'Assigned Agent' } });
+    expect(notifyRequester).toHaveBeenCalledWith(
+      'requester@codevidhya.com',
+      'TICKET_ASSIGNED',
+      expect.objectContaining({ agentName: 'Assigned Agent' }),
+      expect.objectContaining({ subject: expect.stringContaining('Assigned Agent') }),
+    );
+  });
+
+  it('logs TICKET_ASSIGNED and emails again on a reassignment to a different agent', async () => {
+    const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
+    await service.assign(STAFF, 'ticket-1', 'agent-b');
+    expect(auditLogCalls.some((c: any) => c.action === 'TICKET_ASSIGNED')).toBe(true);
+    expect(notifyRequester).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not log or email on unassigning (no new agent to announce)', async () => {
+    const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
+    await service.assign(STAFF, 'ticket-1', null);
+    expect(auditLogCalls.some((c: any) => c.action === 'TICKET_ASSIGNED')).toBe(true); // still logged, for the record
+    expect(notifyRequester).not.toHaveBeenCalled(); // but nobody to announce as "now working on it"
+  });
+
+  it('does not log or email a no-op re-save of the same agent', async () => {
+    const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
+    await service.assign(STAFF, 'ticket-1', 'agent-a');
+    expect(auditLogCalls.some((c: any) => c.action === 'TICKET_ASSIGNED')).toBe(false);
+    expect(notifyRequester).not.toHaveBeenCalled();
   });
 });
 

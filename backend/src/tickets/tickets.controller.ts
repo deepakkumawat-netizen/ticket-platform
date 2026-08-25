@@ -153,6 +153,13 @@ export class TicketsController {
     res.send(file.buffer);
   }
 
+  // ── Tracking history ──────────────────────────────────────────────────
+
+  @Get('tickets/:id/history')
+  getHistory(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.getHistory(staff, id);
+  }
+
   // ── Self-service (any staff role, but this is what EMPLOYEE is for) ───
   // Not department-scoped — see tickets.service.ts's createForSelf/listMine/
   // getMineOrThrow, which scope by "am I the requester", not departmentId.
@@ -195,5 +202,10 @@ export class TicketsController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.tickets.addMyAttachment(staff, id, file);
+  }
+
+  @Get('my-tickets/:id/history')
+  getMyHistory(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.getMyHistory(staff, id);
   }
 }

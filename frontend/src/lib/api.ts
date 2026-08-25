@@ -238,6 +238,18 @@ export type TicketDetail = TicketSummary & {
 export type ChatTurn = { role: 'user' | 'assistant'; text: string };
 
 export type CommentVisibility = 'INTERNAL' | 'PUBLIC';
+// One step on the ticket's tracking timeline — see tickets.service.ts's
+// getHistory/getMyHistory. Every row already existed in AuditLog before
+// this; this is a read-only view over history those methods already wrote.
+export type HistoryEntry = {
+  id: string;
+  action: string;
+  actorUser: { id: string; name: string; role: string } | null;
+  beforeJson: Record<string, unknown> | null;
+  afterJson: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type Attachment = {
   id: string;
   fileName: string;
@@ -448,6 +460,10 @@ export const api = {
   listMyAttachments: (ticketId: string, token: string | null) => request<Attachment[]>(`/my-tickets/${ticketId}/attachments`, { token }),
   uploadMyAttachment: (ticketId: string, file: File, token: string | null) =>
     uploadFile<Attachment>(`/my-tickets/${ticketId}/attachments`, file, token),
+
+  // ── Tracking history ("where's my ticket", parcel-tracker style) ──────
+  getTicketHistory: (ticketId: string, token: string | null) => request<HistoryEntry[]>(`/tickets/${ticketId}/history`, { token }),
+  getMyTicketHistory: (ticketId: string, token: string | null) => request<HistoryEntry[]>(`/my-tickets/${ticketId}/history`, { token }),
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),

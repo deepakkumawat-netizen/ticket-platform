@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, staffToken, ticketDisplayId, Attachment, Comment, TicketDetail } from '../../lib/api';
+import { api, staffToken, ticketDisplayId, Attachment, Comment, HistoryEntry, TicketDetail } from '../../lib/api';
+import { TicketTracker } from './TicketTracker';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -25,6 +26,7 @@ export function MyTicketDetailPage() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -40,6 +42,24 @@ export function MyTicketDetailPage() {
     if (!id) return;
     api.listMyAttachments(id, token).then(setAttachments).catch(() => {});
   }, [id, token]);
+
+  const loadHistory = useCallback(() => {
+    if (!id) return;
+    api.getMyTicketHistory(id, token).then(setHistory).catch(() => {});
+  }, [id, token]);
+
+  // Read-only for the employee — nothing here they do themselves moves the
+  // tracker forward, so poll instead of only refreshing after their own
+  // actions (same 30s interval NotificationBell already uses elsewhere).
+  useEffect(() => {
+    loadHistory();
+    if (!id) return;
+    const interval = setInterval(() => {
+      loadHistory();
+      api.getMyTicket(id, token).then(setTicket).catch(() => {});
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [id, token, loadHistory]);
 
   async function onPostComment(e: FormEvent) {
     e.preventDefault();
@@ -103,6 +123,8 @@ export function MyTicketDetailPage() {
       <p className="status-line">
         Status: <strong>{currentLabel}</strong>
       </p>
+
+      <TicketTracker entries={history} />
 
       <section className="ticket-description">
         <h2>Description</h2>

@@ -69,6 +69,14 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   'text/plain',
 ]);
 
+// The "parcel tracker" timeline (Deepak's ask, 2026-08-25) — staff/admins
+// see every AuditLog entry for full visibility, but the requester only sees
+// milestones that are actually about THEIR ticket's journey. Internal ops
+// noise (an escalation firing, a manager being pinged, an archive/unarchive
+// housekeeping action) is deliberately left out of their view — same
+// reasoning as INTERNAL comments never reaching them.
+const REQUESTER_VISIBLE_HISTORY_ACTIONS = ['TICKET_CREATED', 'TICKET_ASSIGNED', 'TICKET_AUTO_ASSIGNED', 'TICKET_STATUS_CHANGED'];
+
 type StatusSchemaSnapshot = {
   statuses: { key: string; label: string; isInitial: boolean; isTerminal: boolean; order: number }[];
   transitions: { fromStatusKey: string; toStatusKey: string; allowedRoles: string[] }[];
@@ -174,6 +182,20 @@ export class TicketsService {
         resolutionDueAt,
       },
       include: TICKET_INCLUDE,
+    });
+
+    // First entry on the ticket's tracking timeline (2026-08-25's full-
+    // tracking addition) — unconditional, every ticket gets one.
+    await this.prisma.auditLog.create({
+      data: {
+        orgId: staff.orgId,
+        actorType: 'STAFF',
+        actorUserId: staff.sub,
+        action: 'TICKET_CREATED',
+        entityType: 'Ticket',
+        entityId: ticket.id,
+        afterJson: { subject: dto.subject, priority: dto.priority, statusKey: initialStatus.key },
+      },
     });
 
     if (autoAssignReasoning) {
@@ -511,6 +533,36 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     }
   }
 
+  // ── Tracking history ─────────────────────────────────────────────────
+  // The "parcel tracker" timeline — every AuditLog row already written by
+  // create()/assign()/transition()/escalate()/archive() etc., just read
+  // back in order. Nothing new is written here; this is purely a read path
+  // over history those methods already produce.
+
+  async getHistory(staff: StaffJwtPayload, ticketId: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    return this.prisma.auditLog.findMany({
+      where: { entityType: 'Ticket', entityId: ticketId },
+      include: { actorUser: { select: { id: true, name: true, role: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // Employee self-service — same ownership check as comments/attachments
+  // above, plus a narrower set of visible steps (see
+  // REQUESTER_VISIBLE_HISTORY_ACTIONS) so this reads like a delivery
+  // tracker's milestones, not an internal ops log.
+  async getMyHistory(staff: StaffJwtPayload, ticketId: string) {
+    await this.getMineOrThrow(staff, ticketId);
+    return this.prisma.auditLog.findMany({
+      where: { entityType: 'Ticket', entityId: ticketId, action: { in: REQUESTER_VISIBLE_HISTORY_ACTIONS } },
+      include: { actorUser: { select: { id: true, name: true, role: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   // ── Assignment ────────────────────────────────────────────────────────
   // A "reassignment" (bouncing a ticket from one agent to another, not the
   // first assignment out of Unassigned) is one of the three escalation
@@ -582,6 +634,38 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
         },
       });
       await this.notifyEscalation(staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD);
+    }
+
+    // Full tracking (Deepak's ask, 2026-08-25): every assignment change gets
+    // logged for the timeline AND emails the requester who's now on it —
+    // same "delivery tracker" spirit as the resolution email, just for the
+    // "assigned to an agent" step. Only when a real agent actually changed
+    // (not on plain unassign, and not a no-op re-save of the same agent).
+    if (ticket.assignedAgentId !== updated.assignedAgentId) {
+      await this.prisma.auditLog.create({
+        data: {
+          orgId: staff.orgId,
+          actorType: 'STAFF',
+          actorUserId: staff.sub,
+          action: 'TICKET_ASSIGNED',
+          entityType: 'Ticket',
+          entityId: id,
+          beforeJson: { agentId: ticket.assignedAgentId },
+          afterJson: { agentId: updated.assignedAgentId, agentName: updated.assignedAgent?.name ?? null },
+        },
+      });
+      if (updated.assignedAgentId && updated.assignedAgent) {
+        const displayId = `${updated.department.key}-${updated.ticketNumber}`;
+        await this.notifications.notifyRequester(
+          updated.customer.email,
+          'TICKET_ASSIGNED',
+          { ticketId: updated.id, displayId, subject: updated.subject, agentName: updated.assignedAgent.name },
+          {
+            subject: `[${displayId}] Assigned to ${updated.assignedAgent.name}`,
+            body: `Your ticket "${updated.subject}" is now being worked on by ${updated.assignedAgent.name}.`,
+          },
+        );
+      }
     }
 
     return updated;
@@ -810,23 +894,43 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       throw err;
     }
 
-    // Deepak's ask (2026-08-25): once email is connected, the requester
-    // should actually hear that their ticket got resolved, not just see it
-    // update in an app they may not be checking. Best-effort — see
-    // MailerService: a broken/unset SMTP config just logs and skips, it
-    // never fails the transition itself.
-    if (isFirstResolution) {
-      const displayId = `${updated.department.key}-${updated.ticketNumber}`;
-      await this.notifications.notifyRequester(
-        updated.customer.email,
-        'TICKET_RESOLVED',
-        { ticketId: updated.id, displayId, subject: updated.subject },
-        {
-          subject: `[${displayId}] Resolved — ${updated.subject}`,
-          body: `Your ticket "${updated.subject}" has been marked "${toStatusDef?.label ?? toStatusKey}".\n\nIf this doesn't look right, reply on the ticket in the Ticket Platform and it'll get looked at again.`,
-        },
-      );
-    }
+    const displayId = `${updated.department.key}-${updated.ticketNumber}`;
+    const toLabel = toStatusDef?.label ?? toStatusKey;
+
+    // Full tracking (Deepak's ask, 2026-08-25): every status move is a step
+    // on the timeline, not just resolution — same "delivery tracker" shape
+    // as the assignment step above.
+    await this.prisma.auditLog.create({
+      data: {
+        orgId: staff.orgId,
+        actorType: 'STAFF',
+        actorUserId: staff.sub,
+        action: 'TICKET_STATUS_CHANGED',
+        entityType: 'Ticket',
+        entityId: id,
+        beforeJson: { statusKey: ticket.statusKey },
+        afterJson: { statusKey: toStatusKey, label: toLabel },
+      },
+    });
+
+    // And once email is connected, the requester should actually hear about
+    // it, not just see it update in an app they may not be checking.
+    // Best-effort — see MailerService: a broken/unset SMTP config just logs
+    // and skips, it never fails the transition itself.
+    await this.notifications.notifyRequester(
+      updated.customer.email,
+      isFirstResolution ? 'TICKET_RESOLVED' : 'TICKET_STATUS_CHANGED',
+      { ticketId: updated.id, displayId, subject: updated.subject, statusKey: toStatusKey, statusLabel: toLabel },
+      isFirstResolution
+        ? {
+            subject: `[${displayId}] Resolved — ${updated.subject}`,
+            body: `Your ticket "${updated.subject}" has been marked "${toLabel}".\n\nIf this doesn't look right, reply on the ticket in the Ticket Platform and it'll get looked at again.`,
+          }
+        : {
+            subject: `[${displayId}] Now "${toLabel}" — ${updated.subject}`,
+            body: `Your ticket "${updated.subject}" moved to "${toLabel}".`,
+          },
+    );
 
     return updated;
   }
