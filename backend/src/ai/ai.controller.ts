@@ -8,6 +8,7 @@ import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { AiService } from './ai.service';
 import { TriageDto } from './dto/triage.dto';
 import { CheckLanguageDto } from './dto/check-language.dto';
+import { ChatDto } from './dto/chat.dto';
 
 // Every route here only ever SUGGESTS — see ai.service.ts's comments. None
 // of these write to a ticket; the caller (NewTicketPage/RaiseTicketPage/
@@ -42,5 +43,14 @@ export class AiController {
   insights(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
     assertDepartmentAccess(staff, departmentId);
     return this.ai.insights(departmentId);
+  }
+
+  // Not department-scoped — every staff role gets an assistant scoped to
+  // whatever tickets THEY can already see (their own for EMPLOYEE, their
+  // department's otherwise), same access model as ai.service.ts's
+  // buildChatContext.
+  @Post('ai/chat')
+  chat(@CurrentStaff() staff: StaffJwtPayload, @Body() dto: ChatDto) {
+    return this.ai.chat(staff, dto.message, dto.history);
   }
 }

@@ -1237,6 +1237,139 @@ body {
   margin-top: 12px;
 }
 
+/* ── AI chat widget ────────────────────────────────────────────────── */
+/* Bottom-right, same corner Google's reCAPTCHA badge would use — no
+   conflict since that badge is force-hidden app-wide above. */
+
+.ai-chat-widget {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+}
+
+.ai-chat-launcher {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: #7c3aed;
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
+}
+
+.ai-chat-launcher:hover {
+  background: #6d28d9;
+}
+
+.ai-chat-panel {
+  position: absolute;
+  right: 0;
+  bottom: 64px;
+  width: 320px;
+  max-height: 440px;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.2);
+  overflow: hidden;
+}
+
+.ai-chat-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #7c3aed;
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.ai-chat-close {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ai-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 180px;
+}
+
+.ai-chat-empty {
+  color: #94a3b8;
+  font-size: 13px;
+  margin: 0;
+}
+
+.ai-chat-bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.ai-chat-bubble-user {
+  align-self: flex-end;
+  background: #7c3aed;
+  color: white;
+  border-bottom-right-radius: 2px;
+}
+
+.ai-chat-bubble-assistant {
+  align-self: flex-start;
+  background: #f1f5f9;
+  color: #1e293b;
+  border-bottom-left-radius: 2px;
+}
+
+.ai-chat-thinking {
+  color: #94a3b8;
+}
+
+.ai-chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.ai-chat-input-row input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.ai-chat-input-row button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #7c3aed;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-chat-input-row button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .recaptcha-disclosure a {
   color: #94a3b8;
   text-decoration: underline;

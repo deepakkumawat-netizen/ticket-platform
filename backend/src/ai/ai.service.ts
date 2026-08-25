@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Priority } from '@ticket-platform/shared';
+import { Priority, StaffRole } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketsService } from '../tickets/tickets.service';
 import { DashboardsService } from '../dashboards/dashboards.service';
@@ -8,6 +8,7 @@ import { GeminiService } from './gemini.service';
 
 type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
 type LanguageCheckResult = { flagged: boolean; reason: string };
+type ChatTurn = { role: 'user' | 'assistant'; text: string };
 
 @Injectable()
 export class AiService {
@@ -130,5 +131,55 @@ specific with numbers from the data. Don't restate every field — pick out what
 ${JSON.stringify(data)}`;
 
     return { summary: await this.gemini.generateText(prompt) };
+  }
+
+  // ── Chat assistant ────────────────────────────────────────────────────
+  // The 4th originally-scoped AI feature. Deliberately read-only and
+  // stateless server-side, same "human-in-the-loop" spirit as the other
+  // three: it can discuss the caller's own visible tickets (their own, for
+  // an EMPLOYEE; their department's, for everyone else) but never creates,
+  // edits, or closes anything — same reasoning as draftReply above.
+  // Multi-turn is done by re-sending the whole transcript as plain text in
+  // one prompt each time rather than Gemini's own multi-turn `contents`
+  // array — simpler, and plenty for a short back-and-forth at this scale.
+  async chat(staff: StaffJwtPayload, message: string, history: ChatTurn[] = []): Promise<{ reply: string }> {
+    const context = await this.buildChatContext(staff);
+    const transcript = history.map((t) => `${t.role === 'user' ? 'Staff member' : 'Assistant'}: ${t.text}`).join('\n');
+
+    const prompt = `You are a helpful assistant embedded in an internal IT/support helpdesk tool. Answer
+the staff member's question conversationally and concisely (2-4 sentences unless real detail is
+needed). Below is a short list of tickets they're allowed to see right now — use it to answer
+questions about ticket status/assignment, but say you're not sure rather than inventing anything not
+shown there. You cannot create, edit, assign, or close a ticket yourself — if asked to do that, tell
+them to use the ticket screen instead of doing it here.
+
+${context}
+${transcript ? `Conversation so far:\n${transcript}\n` : ''}
+Staff member: ${message}
+Assistant:`;
+
+    const reply = await this.gemini.generateText(prompt);
+    return { reply: reply.trim() };
+  }
+
+  private async buildChatContext(staff: StaffJwtPayload): Promise<string> {
+    if (staff.role === StaffRole.EMPLOYEE) {
+      const mine = await this.tickets.listMine(staff);
+      if (mine.length === 0) return "This person hasn't raised any tickets yet.";
+      return `Their recent tickets:\n${mine
+        .slice(0, 10)
+        .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, priority ${t.priority}`)
+        .join('\n')}`;
+    }
+    // SUPER_ADMIN has no single departmentId (org-wide, not department-scoped)
+    // — no ticket list narrow enough to be worth showing, so it's a general
+    // assistant only for that role.
+    if (!staff.departmentId) return 'No specific ticket list is available for this role — answer generally.';
+    const deptTickets = await this.tickets.list(staff.departmentId, {});
+    if (deptTickets.length === 0) return "This department has no tickets yet.";
+    return `Recent tickets in their department:\n${deptTickets
+      .slice(0, 10)
+      .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, assigned to ${t.assignedAgent?.name ?? 'nobody'}`)
+      .join('\n')}`;
   }
 }

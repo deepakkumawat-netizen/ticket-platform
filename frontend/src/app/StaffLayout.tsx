@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { api, NotificationItem, staffToken, staffUser } from '../lib/api';
+import { AiChatWidget } from './AiChatWidget';
 
 // Shared shell for every /app/* screen — sidebar + topbar, TailAdmin-style.
 // Individual pages (DepartmentDashboardPage, TicketListPage, ...) render
@@ -78,6 +79,7 @@ export function StaffLayout() {
           <Outlet />
         </main>
       </div>
+      <AiChatWidget />
     </div>
   );
 }

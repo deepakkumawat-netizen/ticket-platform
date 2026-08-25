@@ -160,6 +160,8 @@ export type TicketDetail = TicketSummary & {
 // INTERNAL (agent-only notes) vs PUBLIC (also shown to the requester on
 // their own /my-tickets view) — see backend's tickets.service.ts comment
 // methods. The employee-facing routes only ever return/accept PUBLIC.
+export type ChatTurn = { role: 'user' | 'assistant'; text: string };
+
 export type CommentVisibility = 'INTERNAL' | 'PUBLIC';
 export type Comment = {
   id: string;
@@ -355,6 +357,10 @@ export const api = {
       body: JSON.stringify({ subject, description }),
       token,
     }),
+  // Stateless server-side — send the whole running conversation back each
+  // time (see ai.service.ts's chat()). history omits the message just sent.
+  chat: (message: string, history: ChatTurn[], token: string | null) =>
+    request<{ reply: string }>('/ai/chat', { method: 'POST', body: JSON.stringify({ message, history }), token }),
 
   // ── Admin: onboarding logins (SUPER_ADMIN only) ─────────────────────
   createUser: (
