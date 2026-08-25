@@ -1,7 +1,36 @@
+import { useSyncExternalStore } from 'react';
+
 // Minimal fetch wrapper. Deliberately two separate token slots (staff vs
 // customer) mirroring the backend's principalType split — never merge these
 // into one "auth token" concept, that's exactly the boundary the backend
 // guards enforce (see backend/src/auth/jwt-payload.interface.ts).
+
+// Tiny pub-sub so React can react to a token being set/cleared. Without
+// this, `App.tsx` reading `staffToken.get()` directly in JSX only ever runs
+// once at initial mount (nothing about a plain localStorage read tells React
+// to re-render) — so logging in bounced straight back to /staff/login until
+// a hard reload, since the RequireAuth guard was still holding the `null`
+// it captured before login. Wrap get/set/clear in a store React can
+// subscribe to (via useSyncExternalStore below) instead.
+function createTokenStore(storageKey: string) {
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach((l) => l());
+  return {
+    get: () => localStorage.getItem(storageKey),
+    set: (t: string) => {
+      localStorage.setItem(storageKey, t);
+      notify();
+    },
+    clear: () => {
+      localStorage.removeItem(storageKey);
+      notify();
+    },
+    subscribe: (onChange: () => void) => {
+      listeners.add(onChange);
+      return () => listeners.delete(onChange);
+    },
+  };
+}
 
 // Default '/api' covers BOTH local dev (Vite's proxy forwards it to
 // localhost:3000/api — see vite.config.ts) AND the standard production
@@ -16,11 +45,13 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 const STAFF_TOKEN_KEY = 'tp_staff_token';
 const CUSTOMER_TOKEN_KEY = 'tp_customer_token';
 
-export const staffToken = {
-  get: () => localStorage.getItem(STAFF_TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(STAFF_TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(STAFF_TOKEN_KEY),
-};
+export const staffToken = createTokenStore(STAFF_TOKEN_KEY);
+// React hook counterpart of `staffToken.get()` — use this (not `.get()`)
+// anywhere the result feeds a route guard or otherwise needs to force a
+// re-render when login/logout happens without a full page reload.
+export function useStaffToken() {
+  return useSyncExternalStore(staffToken.subscribe, staffToken.get);
+}
 
 // Staff identity (id/role/departmentId) from the login response — pages need
 // this to know "which department am I in" without decoding the JWT client-side.
@@ -35,11 +66,10 @@ export const staffUser = {
   clear: () => localStorage.removeItem(STAFF_USER_KEY),
 };
 
-export const customerToken = {
-  get: () => localStorage.getItem(CUSTOMER_TOKEN_KEY),
-  set: (t: string) => localStorage.setItem(CUSTOMER_TOKEN_KEY, t),
-  clear: () => localStorage.removeItem(CUSTOMER_TOKEN_KEY),
-};
+export const customerToken = createTokenStore(CUSTOMER_TOKEN_KEY);
+export function useCustomerToken() {
+  return useSyncExternalStore(customerToken.subscribe, customerToken.get);
+}
 
 async function request<T>(path: string, opts: RequestInit & { token?: string | null } = {}): Promise<T> {
   const { token, headers, ...rest } = opts;

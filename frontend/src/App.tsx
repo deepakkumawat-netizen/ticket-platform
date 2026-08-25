@@ -15,7 +15,7 @@ import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboa
 import { PortalHomePage } from './features/portal/PortalHomePage';
 import { RequireAuth } from './app/RequireAuth';
 import { StaffLayout } from './app/StaffLayout';
-import { staffToken, staffUser, customerToken } from './lib/api';
+import { staffUser, useStaffToken, useCustomerToken } from './lib/api';
 
 // EMPLOYEE has no department queue/dashboard — land them on their own
 // ticket list instead. Everyone else lands on the dashboard, as before.
@@ -34,7 +34,7 @@ export default function App() {
 
       <Route path="/staff/login" element={<StaffLoginPage />} />
       <Route path="/staff/signup" element={<StaffSignupPage />} />
-      <Route element={<RequireAuth token={staffToken.get()} redirectTo="/staff/login" />}>
+      <Route element={<RequireAuth useToken={useStaffToken} redirectTo="/staff/login" />}>
         <Route element={<StaffLayout />}>
           <Route path="/app" element={<AppIndex />} />
           <Route path="/app/dashboard" element={<DepartmentDashboardPage />} />
@@ -51,7 +51,7 @@ export default function App() {
       </Route>
 
       <Route path="/portal/login" element={<PortalLoginPage />} />
-      <Route element={<RequireAuth token={customerToken.get()} redirectTo="/portal/login" />}>
+      <Route element={<RequireAuth useToken={useCustomerToken} redirectTo="/portal/login" />}>
         <Route path="/portal" element={<PortalHomePage />} />
       </Route>
     </Routes>
