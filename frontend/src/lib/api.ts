@@ -88,6 +88,50 @@ async function request<T>(path: string, opts: RequestInit & { token?: string | n
   return res.json();
 }
 
+// Multipart upload — deliberately NOT routed through request() above, which
+// always sets Content-Type: application/json and JSON.stringifies the body.
+// No Content-Type header here at all: the browser sets its own
+// multipart/form-data boundary, which fetch can't be handed manually.
+async function uploadFile<T>(path: string, file: File, token: string | null): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Triggers a real browser download despite needing an Authorization header
+// (a plain <a href> can't send one, and this API isn't same-origin-cookie
+// authenticated) — fetch the bytes as a blob, then click a throwaway
+// <a download> pointed at an object URL, same trick every JS-driven
+// authenticated-download implementation uses.
+async function downloadFile(path: string, token: string | null, fallbackName: string): Promise<void> {
+  const res = await fetch(`${API_BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.message || `Request failed: ${res.status}`);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = disposition.match(/filename="([^"]+)"/);
+  const fileName = match ? decodeURIComponent(match[1]) : fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ── Shapes returned by the tickets/dashboards/ticket-types endpoints ───────
 // Kept here rather than in packages/shared because these are plain API
 // response shapes (not cross-cutting validation contracts like
@@ -194,6 +238,15 @@ export type TicketDetail = TicketSummary & {
 export type ChatTurn = { role: 'user' | 'assistant'; text: string };
 
 export type CommentVisibility = 'INTERNAL' | 'PUBLIC';
+export type Attachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+  uploadedByStaffId: string | null;
+};
+
 export type Comment = {
   id: string;
   ticketId: string;
@@ -385,6 +438,16 @@ export const api = {
   listMyComments: (ticketId: string, token: string | null) => request<Comment[]>(`/my-tickets/${ticketId}/comments`, { token }),
   addMyComment: (ticketId: string, body: string, token: string | null) =>
     request<Comment>(`/my-tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify({ body }), token }),
+
+  // ── Attachments — images/PDFs/plain text, 5MB max (see tickets.service.ts) ──
+  listAttachments: (ticketId: string, token: string | null) => request<Attachment[]>(`/tickets/${ticketId}/attachments`, { token }),
+  uploadAttachment: (ticketId: string, file: File, token: string | null) =>
+    uploadFile<Attachment>(`/tickets/${ticketId}/attachments`, file, token),
+  downloadAttachment: (attachmentId: string, fileName: string, token: string | null) =>
+    downloadFile(`/attachments/${attachmentId}/download`, token, fileName),
+  listMyAttachments: (ticketId: string, token: string | null) => request<Attachment[]>(`/my-tickets/${ticketId}/attachments`, { token }),
+  uploadMyAttachment: (ticketId: string, file: File, token: string | null) =>
+    uploadFile<Attachment>(`/my-tickets/${ticketId}/attachments`, file, token),
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),

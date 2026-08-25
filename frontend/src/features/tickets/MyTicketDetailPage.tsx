@@ -1,6 +1,12 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { api, staffToken, ticketDisplayId, Comment, TicketDetail } from '../../lib/api';
+import { api, staffToken, ticketDisplayId, Attachment, Comment, TicketDetail } from '../../lib/api';
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // Read-only on status/assignment — an employee can see their own ticket but
 // can't assign or transition it, that's staff work. See TicketDetailPage for
@@ -15,6 +21,10 @@ export function MyTicketDetailPage() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentBody, setCommentBody] = useState('');
   const [postingComment, setPostingComment] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -24,6 +34,11 @@ export function MyTicketDetailPage() {
   useEffect(() => {
     if (!id) return;
     api.listMyComments(id, token).then(setComments).catch(() => {});
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!id) return;
+    api.listMyAttachments(id, token).then(setAttachments).catch(() => {});
   }, [id, token]);
 
   async function onPostComment(e: FormEvent) {
@@ -39,6 +54,31 @@ export function MyTicketDetailPage() {
       setError(err instanceof Error ? err.message : 'Could not post this comment');
     } finally {
       setPostingComment(false);
+    }
+  }
+
+  async function onUploadAttachment(e: FormEvent) {
+    e.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!id || !file) return;
+    setUploadingAttachment(true);
+    setAttachmentError(null);
+    try {
+      const uploaded = await api.uploadMyAttachment(id, file, token);
+      setAttachments((prev) => [...prev, uploaded]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : 'Could not upload this file');
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function onDownloadAttachment(a: Attachment) {
+    try {
+      await api.downloadAttachment(a.id, a.fileName, token);
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : 'Could not download this file');
     }
   }
 
@@ -82,6 +122,26 @@ export function MyTicketDetailPage() {
           </dl>
         </section>
       )}
+
+      <section className="ticket-attachments">
+        <h2>Attachments</h2>
+        <div className="attachment-list">
+          {attachments.length === 0 && <p className="comment-empty">No files attached yet.</p>}
+          {attachments.map((a) => (
+            <button key={a.id} type="button" className="attachment-item" onClick={() => onDownloadAttachment(a)}>
+              📎 {a.fileName} <span className="attachment-size">({formatFileSize(a.size)})</span>
+            </button>
+          ))}
+        </div>
+        <form className="attachment-form" onSubmit={onUploadAttachment}>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain" />
+          <button type="submit" disabled={uploadingAttachment}>
+            {uploadingAttachment ? 'Uploading…' : 'Attach file'}
+          </button>
+        </form>
+        <p className="comment-empty">A screenshot of the problem helps — images, PDFs, or plain text, 5MB max.</p>
+        {attachmentError && <p className="error">{attachmentError}</p>}
+      </section>
 
       <section className="ticket-comments">
         <h2>Updates &amp; replies</h2>

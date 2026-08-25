@@ -49,7 +49,7 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
   // Not exercised by these tests (create()/auto-assign has its own spec) —
   // just needs to exist so the constructor call type-checks.
   const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
-  const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any);
+  const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any, {} as any);
   return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket };
 }
 
@@ -212,14 +212,14 @@ describe('TicketsService.notifyManager — FYI, not an escalation', () => {
 describe('TicketsService.list — archive filtering', () => {
   it('hides archived tickets by default', () => {
     const findMany = jest.fn().mockReturnValue([]);
-    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any);
+    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any, {} as any);
     service.list('dept-tech', {});
     expect(findMany.mock.calls[0][0].where.isArchived).toBe(false);
   });
 
   it('shows only archived tickets when ?archived=true', () => {
     const findMany = jest.fn().mockReturnValue([]);
-    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any);
+    const service = new TicketsService({ ticket: { findMany } } as any, {} as any, {} as any, {} as any, {} as any);
     service.list('dept-tech', { archived: 'true' } as any);
     expect(findMany.mock.calls[0][0].where.isArchived).toBe(true);
   });

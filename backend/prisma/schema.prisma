@@ -379,9 +379,10 @@ model Attachment {
   ticketId       String
   comment        Comment? @relation(fields: [commentId], references: [id])
   commentId      String?
-  // storageKey is opaque to the rest of the app — see storage.interface.ts
-  // in the backend, which is what makes local-disk -> S3 later a config
-  // change instead of a rewrite.
+  // storageKey is opaque to the rest of the app — see storage.service.ts in
+  // the backend, which is what makes today's DB-backed storage -> S3 later
+  // a config change (a different StorageService implementation) instead of
+  // a rewrite. Today it's an AttachmentBlob.id.
   storageKey     String
   fileName       String
   mimeType       String
@@ -389,6 +390,20 @@ model Attachment {
   uploadedByStaffId    String?
   uploadedByCustomerId String?
   createdAt      DateTime @default(now())
+}
+
+// The actual bytes, deliberately kept OUT of the Attachment row above so
+// listing a ticket's attachments (metadata only) never has to pull file
+// contents along with it. Stored in Postgres rather than local disk because
+// Render's free-tier disk is ephemeral — wiped on every redeploy, which
+// happens on every git push — so local-disk storage would silently lose
+// every attachment the next time this app deploys. This is fine at a
+// helpdesk's actual attachment scale (screenshots, a few KB-MB each); swap
+// StorageService for an S3-backed one if that ever stops being true.
+model AttachmentBlob {
+  id       String @id @default(cuid())
+  data     Bytes
+  mimeType String
 }
 
 model AuditLog {

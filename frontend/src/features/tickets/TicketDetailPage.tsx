@@ -1,6 +1,12 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { api, staffToken, staffUser, ticketDisplayId, Comment, CommentVisibility, StaffMember, TicketDetail } from '../../lib/api';
+import { api, staffToken, staffUser, ticketDisplayId, Attachment, Comment, CommentVisibility, StaffMember, TicketDetail } from '../../lib/api';
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +24,10 @@ export function TicketDetailPage() {
   const [commentBody, setCommentBody] = useState('');
   const [commentVisibility, setCommentVisibility] = useState<CommentVisibility>('PUBLIC');
   const [postingComment, setPostingComment] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Only present for one page load, right after creation (router state,
   // not persisted) — see api.ts's CreatedTicket / tickets.service.ts's
   // create() comment on why this isn't stored on the ticket itself.
@@ -33,8 +43,14 @@ export function TicketDetailPage() {
     api.listComments(id, token).then(setComments).catch(() => {});
   }, [id, token]);
 
+  const loadAttachments = useCallback(() => {
+    if (!id) return;
+    api.listAttachments(id, token).then(setAttachments).catch(() => {});
+  }, [id, token]);
+
   useEffect(() => load(), [load]);
   useEffect(() => loadComments(), [loadComments]);
+  useEffect(() => loadAttachments(), [loadAttachments]);
 
   useEffect(() => {
     // Must be the TICKET's department, not the viewer's own — a SUPER_ADMIN
@@ -171,6 +187,31 @@ export function TicketDetailPage() {
     }
   }
 
+  async function onUploadAttachment(e: FormEvent) {
+    e.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!ticket || !file) return;
+    setUploadingAttachment(true);
+    setAttachmentError(null);
+    try {
+      const uploaded = await api.uploadAttachment(ticket.id, file, token);
+      setAttachments((prev) => [...prev, uploaded]);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : 'Could not upload this file');
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function onDownloadAttachment(a: Attachment) {
+    try {
+      await api.downloadAttachment(a.id, a.fileName, token);
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : 'Could not download this file');
+    }
+  }
+
   return (
     <div className="page-shell">
       <div className="page-header">
@@ -270,6 +311,26 @@ export function TicketDetailPage() {
             </button>
           </div>
         )}
+      </section>
+
+      <section className="ticket-attachments">
+        <h2>Attachments</h2>
+        <div className="attachment-list">
+          {attachments.length === 0 && <p className="comment-empty">No files attached yet.</p>}
+          {attachments.map((a) => (
+            <button key={a.id} type="button" className="attachment-item" onClick={() => onDownloadAttachment(a)}>
+              📎 {a.fileName} <span className="attachment-size">({formatFileSize(a.size)})</span>
+            </button>
+          ))}
+        </div>
+        <form className="attachment-form" onSubmit={onUploadAttachment}>
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/plain" />
+          <button type="submit" disabled={uploadingAttachment}>
+            {uploadingAttachment ? 'Uploading…' : 'Attach file'}
+          </button>
+        </form>
+        <p className="comment-empty">Images, PDFs, or plain text — 5MB max.</p>
+        {attachmentError && <p className="error">{attachmentError}</p>}
       </section>
 
       <section className="ticket-comments">

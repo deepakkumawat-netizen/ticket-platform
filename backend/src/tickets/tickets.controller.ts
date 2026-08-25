@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { StaffRole } from '@ticket-platform/shared';
 import { StaffAuthGuard } from '../common/guards/staff-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -15,6 +17,12 @@ import { TransitionTicketDto } from './dto/transition-ticket.dto';
 import { EscalateTicketDto } from './dto/escalate-ticket.dto';
 import { NotifyManagerDto } from './dto/notify-manager.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
+
+// Matches tickets.service.ts's MAX_ATTACHMENT_BYTES — multer rejects an
+// oversized upload at the stream level (before it's even fully buffered);
+// the service-side check is the defense-in-depth backstop for any future
+// caller that doesn't go through this interceptor.
+const ATTACHMENT_UPLOAD_OPTIONS = { limits: { fileSize: 5 * 1024 * 1024 } };
 
 // No @Roles restrictions anywhere here — unlike ticket-types (the admin
 // authoring surface), working tickets is the normal job of every staff role
@@ -111,6 +119,40 @@ export class TicketsController {
     return this.tickets.addComment(staff, id, dto);
   }
 
+  // ── Attachments ───────────────────────────────────────────────────────
+  // Same "any in-department staff role's job" reasoning as comments above.
+
+  @Get('tickets/:id/attachments')
+  listAttachments(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.listAttachments(staff, id);
+  }
+
+  @Post('tickets/:id/attachments')
+  @UseInterceptors(FileInterceptor('file', ATTACHMENT_UPLOAD_OPTIONS))
+  addAttachment(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.tickets.addAttachment(staff, id, file);
+  }
+
+  // Shared by both the staff and employee attachment views below — an
+  // attachment id doesn't carry which route created it, so this branches on
+  // the caller's own role rather than needing two separate download routes.
+  @Get('attachments/:id/download')
+  async downloadAttachment(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Res() res: Response) {
+    const file =
+      staff.role === StaffRole.EMPLOYEE
+        ? await this.tickets.getMyAttachmentOrThrow(staff, id)
+        : await this.tickets.getAttachmentOrThrow(staff, id);
+    res.set({
+      'Content-Type': file.mimeType,
+      'Content-Disposition': `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+    });
+    res.send(file.buffer);
+  }
+
   // ── Self-service (any staff role, but this is what EMPLOYEE is for) ───
   // Not department-scoped — see tickets.service.ts's createForSelf/listMine/
   // getMineOrThrow, which scope by "am I the requester", not departmentId.
@@ -138,5 +180,20 @@ export class TicketsController {
   @Post('my-tickets/:id/comments')
   addMyComment(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string, @Body() dto: CreateCommentDto) {
     return this.tickets.addMyComment(staff, id, dto);
+  }
+
+  @Get('my-tickets/:id/attachments')
+  listMyAttachments(@CurrentStaff() staff: StaffJwtPayload, @Param('id') id: string) {
+    return this.tickets.listMyAttachments(staff, id);
+  }
+
+  @Post('my-tickets/:id/attachments')
+  @UseInterceptors(FileInterceptor('file', ATTACHMENT_UPLOAD_OPTIONS))
+  addMyAttachment(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.tickets.addMyAttachment(staff, id, file);
   }
 }

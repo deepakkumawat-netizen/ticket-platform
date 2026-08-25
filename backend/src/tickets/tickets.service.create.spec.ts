@@ -42,7 +42,7 @@ function makeCreateHarness(candidates: { id: string; name: string }[], geminiImp
   const ticketTypes = { getLatestPublishedVersion: jest.fn().mockResolvedValue(VERSION) };
   const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn() };
   const gemini = { generateJson: jest.fn().mockImplementation(geminiImpl ?? (() => Promise.reject(new Error('unexpected call')))) };
-  const service = new TicketsService(prisma as any, ticketTypes as any, notifications as any, gemini as any);
+  const service = new TicketsService(prisma as any, ticketTypes as any, notifications as any, gemini as any, {} as any);
   return { service, prisma, gemini, ticketCreateCalls, auditLogCalls };
 }
 

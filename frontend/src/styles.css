@@ -1220,6 +1220,73 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Attachments ───────────────────────────────────────────────────── */
+
+.ticket-attachments {
+  margin-top: 24px;
+}
+
+.attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.attachment-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 6px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 14px;
+  color: #1e293b;
+  cursor: pointer;
+  text-align: left;
+}
+
+.attachment-item:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.attachment-size {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.attachment-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.attachment-form input[type='file'] {
+  font-size: 13px;
+}
+
+.attachment-form button {
+  padding: 7px 14px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: white;
+  color: #2563eb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.attachment-form button:hover {
+  background: #eff6ff;
+}
+
+.attachment-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Google's reCAPTCHA v3 badge floats over EVERY page for the rest of the
    browser session once loaded (this is a single-page app — the script tag
    persists across client-side route changes, so it doesn't just disappear

@@ -49,7 +49,7 @@ function makeHarness(ticketOverrides: Partial<any> = {}, existingComments: any[]
   };
   const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn() };
   const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
-  const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any);
+  const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any, {} as any);
   return { service, prisma, commentCreateCalls, commentFindManyCalls, ticketUpdateCalls };
 }
 

@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TicketTypesService } from '../ticket-types/ticket-types.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GeminiService } from '../ai/gemini.service';
+import { StorageService } from '../storage/storage.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
@@ -37,6 +38,37 @@ const COMMENT_INCLUDE = {
   customerAuthor: { select: { id: true, name: true } },
 };
 
+// Metadata only — deliberately never selects anything blob-shaped, since
+// the bytes live in AttachmentBlob (see storage.service.ts), not here.
+const ATTACHMENT_SELECT = {
+  id: true,
+  fileName: true,
+  mimeType: true,
+  size: true,
+  createdAt: true,
+  uploadedByStaffId: true,
+} as const;
+
+// Loose shape (structurally matches Express.Multer.File, and the plain
+// object create()/tickets.service.spec's tests construct) rather than
+// importing Express's own type here — this service has no other Express
+// dependency and shouldn't need one just for this.
+type UploadedFileLike = { buffer: Buffer; mimetype: string; originalname: string; size: number };
+
+// Images, PDFs, plain text — enough for "attach a screenshot of the error",
+// this codebase's actual use case, without accepting arbitrary executables.
+// 5MB is generous for a screenshot and small enough to keep comfortably in
+// Postgres (see storage.service.ts on why DB-backed, not local disk).
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'application/pdf',
+  'text/plain',
+]);
+
 type StatusSchemaSnapshot = {
   statuses: { key: string; label: string; isInitial: boolean; isTerminal: boolean; order: number }[];
   transitions: { fromStatusKey: string; toStatusKey: string; allowedRoles: string[] }[];
@@ -52,6 +84,7 @@ export class TicketsService {
     private ticketTypes: TicketTypesService,
     private notifications: NotificationsService,
     private gemini: GeminiService,
+    private storage: StorageService,
   ) {}
 
   // ── Create ────────────────────────────────────────────────────────────
@@ -388,6 +421,94 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       data: { ticketId, staffAuthorId: staff.sub, visibility: CommentVisibility.PUBLIC, body: dto.body },
       include: COMMENT_INCLUDE,
     });
+  }
+
+  // ── Attachments ───────────────────────────────────────────────────────
+  // File bytes live in a separate AttachmentBlob row (see
+  // storage.service.ts) — Attachment itself only ever carries metadata, so
+  // listing a ticket's attachments never pulls file contents along with it.
+  // Always ticket-level (commentId left null) in v1 — the schema supports
+  // tying a file to one specific comment, nothing in the UI does that yet.
+
+  async listAttachments(staff: StaffJwtPayload, ticketId: string) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    return this.prisma.attachment.findMany({
+      where: { ticketId },
+      select: ATTACHMENT_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addAttachment(staff: StaffJwtPayload, ticketId: string, file: UploadedFileLike) {
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    if (!ticket) throw new NotFoundException('Ticket not found');
+    this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+    return this.storeAttachment(ticketId, staff.sub, file);
+  }
+
+  // Fetches the actual bytes for download — separate from listAttachments
+  // (metadata only) so browsing a ticket never has to move file contents
+  // over the wire until someone actually clicks to download one.
+  async getAttachmentOrThrow(staff: StaffJwtPayload, attachmentId: string) {
+    const attachment = await this.prisma.attachment.findUnique({
+      where: { id: attachmentId },
+      include: { ticket: { select: { departmentId: true } } },
+    });
+    if (!attachment) throw new NotFoundException('Attachment not found');
+    this.assertStaffCanAccessTicket(staff, attachment.ticket.departmentId);
+    return this.readAttachmentBytes(attachment);
+  }
+
+  // Employee self-service equivalents — same ownership check as
+  // listMyComments/addMyComment above.
+
+  async listMyAttachments(staff: StaffJwtPayload, ticketId: string) {
+    await this.getMineOrThrow(staff, ticketId);
+    return this.prisma.attachment.findMany({
+      where: { ticketId },
+      select: ATTACHMENT_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addMyAttachment(staff: StaffJwtPayload, ticketId: string, file: UploadedFileLike) {
+    await this.getMineOrThrow(staff, ticketId);
+    return this.storeAttachment(ticketId, staff.sub, file);
+  }
+
+  async getMyAttachmentOrThrow(staff: StaffJwtPayload, attachmentId: string) {
+    const attachment = await this.prisma.attachment.findUnique({ where: { id: attachmentId } });
+    if (!attachment) throw new NotFoundException('Attachment not found');
+    await this.getMineOrThrow(staff, attachment.ticketId); // throws NotFoundException if this isn't their ticket
+    return this.readAttachmentBytes(attachment);
+  }
+
+  private async storeAttachment(ticketId: string, uploadedByStaffId: string, file: UploadedFileLike) {
+    this.assertAttachmentAllowed(file);
+    const storageKey = await this.storage.save(file.buffer, file.mimetype);
+    return this.prisma.attachment.create({
+      data: { ticketId, storageKey, fileName: file.originalname, mimeType: file.mimetype, size: file.size, uploadedByStaffId },
+      select: ATTACHMENT_SELECT,
+    });
+  }
+
+  private async readAttachmentBytes(attachment: { fileName: string; mimeType: string; storageKey: string }) {
+    const blob = await this.storage.read(attachment.storageKey);
+    // Shouldn't happen (nothing deletes an AttachmentBlob out from under a
+    // live Attachment row today) but a missing blob should 404, not 500.
+    if (!blob) throw new NotFoundException('Attachment file is missing');
+    return { fileName: attachment.fileName, mimeType: attachment.mimeType, buffer: blob.buffer };
+  }
+
+  private assertAttachmentAllowed(file: { mimetype: string; size: number }) {
+    if (!ALLOWED_ATTACHMENT_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(`File type "${file.mimetype}" isn't allowed — images, PDFs, and plain text only`);
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException('File is too large — 5MB max');
+    }
   }
 
   // ── Assignment ────────────────────────────────────────────────────────
