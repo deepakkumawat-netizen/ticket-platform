@@ -288,6 +288,10 @@ export const api = {
   // escalation shape, this just types the wider view the builder page needs.
   createTicketTypeDefinition: (departmentId: string, dto: { key: string; name: string; description?: string }, token: string | null) =>
     request<TicketTypeSummary>(`/departments/${departmentId}/ticket-types`, { method: 'POST', body: JSON.stringify(dto), token }),
+  // One-click path: sane default statuses/transitions/SLA rules, published
+  // immediately — see ticket-types.service.ts's quickCreateDefinition.
+  quickCreateTicketType: (departmentId: string, dto: { key: string; name: string; description?: string }, token: string | null) =>
+    request<TicketTypeSummary>(`/departments/${departmentId}/ticket-types/quick-create`, { method: 'POST', body: JSON.stringify(dto), token }),
   getTicketTypeAdminDetail: (id: string, token: string | null) =>
     request<TicketTypeDefinitionAdmin>(`/ticket-types/${id}`, { token }),
   updateTicketTypeDefinition: (id: string, dto: { name?: string; description?: string; isActive?: boolean }, token: string | null) =>

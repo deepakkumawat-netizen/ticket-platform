@@ -134,23 +134,60 @@ export class TicketTypesService {
     const def = await this.prisma.ticketTypeDefinition.create({
       data: { departmentId, key: 'general-support', name: 'General Support', description: 'Default catch-all ticket type.' },
     });
-
     await Promise.all([
       this.addField(def.id, { key: 'affectedSystem', label: 'Affected system', fieldType: 'TEXT', appliesTo: 'BOTH', required: false, order: 0, options: [] } as any),
       this.addField(def.id, { key: 'stepsToReproduce', label: 'Steps to reproduce', fieldType: 'TEXTAREA', appliesTo: 'BOTH', required: false, order: 1, options: [] } as any),
     ]);
+    await this.applyDefaultStatusesAndSla(def.id);
+    return this.publish(def.id, publishedByUserId);
+  }
+
+  // ── One-click ticket type (SUPER_ADMIN/DEPT_ADMIN via the admin UI) ────
+  // Deepak's ask (2026-08-25): the full builder (fields/statuses/transitions/
+  // SLA rules, one form each, then a separate Publish) was too much for a
+  // non-technical admin to reason about just to get a NEW ticket type
+  // usable. This collapses the common case to "type a name, click one
+  // button" — same default statuses/transitions/SLA rules as
+  // provisionDefaultTicketType above, no starter fields (those TECH-specific
+  // ones don't generalize to every department), and publishes immediately
+  // so it's actually usable the moment this returns. The full builder page
+  // still exists for anyone who wants to add custom fields or tune the
+  // defaults afterward — this doesn't replace it, just skips it for the
+  // common "I just need a basic ticket type" case.
+  async quickCreateDefinition(departmentId: string, dto: CreateTicketTypeDefinitionDto, publishedByUserId: string) {
+    if (await this.prisma.ticketTypeDefinition.findUnique({ where: { departmentId_key: { departmentId, key: dto.key } } })) {
+      throw new ConflictException(`A ticket type with key "${dto.key}" already exists in this department`);
+    }
+    const def = await this.prisma.ticketTypeDefinition.create({ data: { departmentId, ...dto } });
+    await this.applyDefaultStatusesAndSla(def.id);
+    // publish() returns the created TicketTypeVersion, not the definition —
+    // the caller here wants the SAME shape createDefinition() returns (the
+    // definition itself), so the admin UI's list/detail code doesn't need a
+    // separate response shape just for this path. Discard publish()'s
+    // return value; `def` already has everything (id/key/name/isActive/...).
+    await this.publish(def.id, publishedByUserId);
+    return def;
+  }
+
+  // Shared by provisionDefaultTicketType and quickCreateDefinition above —
+  // the "Open → In Progress → Resolved" flow plus a full SLA matrix, so
+  // publish()'s requirements (>=1 status marked initial, >=1 SLA rule) are
+  // always satisfied without whoever's clicking the button needing to know
+  // those requirements exist.
+  private async applyDefaultStatusesAndSla(definitionId: string) {
     await Promise.all([
-      this.addStatus(def.id, { key: 'OPEN', label: 'Open', isInitial: true, isTerminal: false, order: 0 } as any),
-      this.addStatus(def.id, { key: 'IN_PROGRESS', label: 'In Progress', isInitial: false, isTerminal: false, order: 1 } as any),
-      this.addStatus(def.id, { key: 'RESOLVED', label: 'Resolved', isInitial: false, isTerminal: true, order: 2 } as any),
+      this.addStatus(definitionId, { key: 'OPEN', label: 'Open', isInitial: true, isTerminal: false, order: 0 } as any),
+      this.addStatus(definitionId, { key: 'IN_PROGRESS', label: 'In Progress', isInitial: false, isTerminal: false, order: 1 } as any),
+      this.addStatus(definitionId, { key: 'RESOLVED', label: 'Resolved', isInitial: false, isTerminal: true, order: 2 } as any),
     ]);
     await Promise.all([
-      this.addTransition(def.id, { fromStatusKey: 'OPEN', toStatusKey: 'IN_PROGRESS', allowedRoles: [] }),
-      this.addTransition(def.id, { fromStatusKey: 'IN_PROGRESS', toStatusKey: 'RESOLVED', allowedRoles: [] }),
-      this.addTransition(def.id, { fromStatusKey: 'OPEN', toStatusKey: 'RESOLVED', allowedRoles: [] }),
+      this.addTransition(definitionId, { fromStatusKey: 'OPEN', toStatusKey: 'IN_PROGRESS', allowedRoles: [] }),
+      this.addTransition(definitionId, { fromStatusKey: 'IN_PROGRESS', toStatusKey: 'RESOLVED', allowedRoles: [] }),
+      this.addTransition(definitionId, { fromStatusKey: 'OPEN', toStatusKey: 'RESOLVED', allowedRoles: [] }),
     ]);
-    // Placeholder minutes, identical to TECH's — adjust once there's a real
-    // admin UI for tuning these (or edit the SlaRule rows directly).
+    // Placeholder minutes, identical to TECH's — adjust from the builder
+    // page's SLA rules section once there's a real reason to tune these per
+    // department/ticket type.
     const slaMinutesByPriority: Record<string, { response: number; resolution: number }> = {
       URGENT: { response: 30, resolution: 240 },
       HIGH: { response: 60, resolution: 480 },
@@ -160,7 +197,7 @@ export class TicketTypesService {
     await Promise.all(
       (['B2B', 'B2C'] as const).flatMap((customerType) =>
         Object.entries(slaMinutesByPriority).map(([priority, minutes]) =>
-          this.addSlaRule(def.id, {
+          this.addSlaRule(definitionId, {
             customerType,
             priority: priority as any,
             responseTimeMinutes: minutes.response,
@@ -169,8 +206,6 @@ export class TicketTypesService {
         ),
       ),
     );
-
-    return this.publish(def.id, publishedByUserId);
   }
 
   // ── Publish: freezes the current draft tables into an immutable version ──

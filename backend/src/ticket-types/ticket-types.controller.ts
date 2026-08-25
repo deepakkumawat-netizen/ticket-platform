@@ -37,6 +37,20 @@ export class TicketTypesController {
     return this.ticketTypes.createDefinition(departmentId, dto);
   }
 
+  // One-click ticket type with sane defaults already filled in and
+  // published immediately — see ticket-types.service.ts's
+  // quickCreateDefinition for why this exists alongside create() above.
+  @Post('departments/:departmentId/ticket-types/quick-create')
+  @Roles(StaffRole.DEPT_ADMIN)
+  quickCreate(
+    @CurrentStaff() staff: StaffJwtPayload,
+    @Param('departmentId') departmentId: string,
+    @Body() dto: CreateTicketTypeDefinitionDto,
+  ) {
+    assertDepartmentAccess(staff, departmentId);
+    return this.ticketTypes.quickCreateDefinition(departmentId, dto, staff.sub);
+  }
+
   @Get('departments/:departmentId/ticket-types')
   list(@CurrentStaff() staff: StaffJwtPayload, @Param('departmentId') departmentId: string) {
     // EMPLOYEE isn't pinned to a department (see departments.service.ts) —

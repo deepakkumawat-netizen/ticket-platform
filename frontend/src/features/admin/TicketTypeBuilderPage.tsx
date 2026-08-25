@@ -63,8 +63,11 @@ export function TicketTypeBuilderPage() {
         </button>
       </div>
       <p className="dash-subtitle">
-        Publishing needs at least one status marked "initial" and at least one SLA rule — you'll get a clear error below
-        if something's missing.
+        {def.versions.length > 0
+          ? 'This is already set up and ready to use — everything below is optional.'
+          : "This isn't usable yet — hit Publish once it has at least one status and one SLA rule."}{' '}
+        Add extra questions ("fields") if you want more detail on the raise-a-ticket form, then hit Publish again to
+        make your changes live.
       </p>
       {publishMessage && <p className="notify-manager-confirm">{publishMessage}</p>}
       {error && <p className="error">{error}</p>}

@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { CustomerType, FieldAppliesTo, FieldType, TicketTypeVersionStatus } from '@ticket-platform/shared';
 import { TicketTypesService } from './ticket-types.service';
 
@@ -168,5 +168,58 @@ describe('TicketTypesService department lookups', () => {
     const prisma = { fieldDefinition: { findUnique: jest.fn().mockResolvedValue(null) } };
     const service = new TicketTypesService(prisma as any);
     await expect(service.getDepartmentIdForField('missing')).rejects.toThrow(NotFoundException);
+  });
+});
+
+// The "type a name, click one button" one-click path added 2026-08-25 so a
+// non-technical admin never has to understand fields/statuses/transitions/
+// SLA rules just to get a NEW ticket type usable. Spies on the
+// already-covered addStatus/addTransition/addSlaRule/publish rather than
+// re-mocking the whole create->publish DB round trip.
+describe('TicketTypesService.quickCreateDefinition', () => {
+  function makeQuickCreateHarness() {
+    const prisma = {
+      ticketTypeDefinition: {
+        findUnique: jest.fn().mockResolvedValue(null), // no existing def with this key yet
+        create: jest.fn().mockResolvedValue({ id: 'tt-new' }),
+      },
+    };
+    const service = new TicketTypesService(prisma as any);
+    jest.spyOn(service, 'addStatus').mockResolvedValue({} as any);
+    jest.spyOn(service, 'addTransition').mockResolvedValue({} as any);
+    jest.spyOn(service, 'addSlaRule').mockResolvedValue({} as any);
+    jest.spyOn(service, 'publish').mockResolvedValue({ id: 'tt-new', versionNumber: 1 } as any);
+    return { service, prisma };
+  }
+
+  it('rejects a duplicate key before creating anything', async () => {
+    const { service, prisma } = makeQuickCreateHarness();
+    (prisma.ticketTypeDefinition.findUnique as jest.Mock).mockResolvedValue({ id: 'existing' });
+    await expect(service.quickCreateDefinition('dept-tech', { key: 'bug', name: 'Bug' } as any, 'user-1')).rejects.toThrow(
+      ConflictException,
+    );
+    expect(prisma.ticketTypeDefinition.create).not.toHaveBeenCalled();
+  });
+
+  it('sets up default statuses, transitions, and SLA rules, then publishes immediately', async () => {
+    const { service } = makeQuickCreateHarness();
+    const result = await service.quickCreateDefinition('dept-tech', { key: 'bug', name: 'Bug' } as any, 'user-1');
+    expect(service.addStatus).toHaveBeenCalledTimes(3);
+    expect(service.addTransition).toHaveBeenCalledTimes(3);
+    expect(service.addSlaRule).toHaveBeenCalledTimes(8); // 4 priorities x 2 customer types
+    expect(service.publish).toHaveBeenCalledWith('tt-new', 'user-1');
+    // Returns the DEFINITION (same shape createDefinition() returns), not
+    // publish()'s TicketTypeVersion return value — the admin UI's list/
+    // detail code expects id/key/name/isActive, not a version row. This is
+    // exactly the bug a live smoke test caught before this was fixed.
+    expect(result).toEqual({ id: 'tt-new' });
+  });
+
+  it('marks exactly one status as initial and one as terminal', async () => {
+    const { service } = makeQuickCreateHarness();
+    await service.quickCreateDefinition('dept-tech', { key: 'bug', name: 'Bug' } as any, 'user-1');
+    const statusCalls = (service.addStatus as jest.Mock).mock.calls.map(([, dto]: any) => dto);
+    expect(statusCalls.filter((c: any) => c.isInitial)).toHaveLength(1);
+    expect(statusCalls.filter((c: any) => c.isTerminal)).toHaveLength(1);
   });
 });
