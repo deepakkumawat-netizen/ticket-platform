@@ -61,6 +61,22 @@ export class NotificationsService {
     await this.notify(managers, type, payload, email);
   }
 
+  /** For emailing whoever raised a ticket (its Customer.email — for an
+   * internal requester that's their own staff email, see
+   * tickets.service.ts's findOrCreateCustomerForStaff) about something that
+   * happened on it, e.g. resolution. Not every Customer.email has a User
+   * row behind it (a genuine external /portal/* customer never would) — if
+   * one exists, write the normal in-app Notification + email via notify();
+   * otherwise there's no bell to ring, so just send the email directly. */
+  async notifyRequester(email: string, type: string, payload: Record<string, unknown>, emailContent: EmailContent) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (user) {
+      await this.notify([{ id: user.id, email: user.email }], type, payload, emailContent);
+    } else {
+      await this.mailer.sendMail(email, emailContent.subject, emailContent.body);
+    }
+  }
+
   listMine(userId: string) {
     // Unpaginated + capped, same v1 scope as every other list endpoint in
     // this codebase (tickets, departments, ticket-types) — fine at this scale.

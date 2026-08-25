@@ -783,7 +783,12 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       // built) — see the workflow doc for what's still planned.
       data.firstRespondedAt = now;
     }
-    if (toStatusDef?.isTerminal && !ticket.resolvedAt) {
+    // Only the FIRST time a ticket reaches a terminal status — not
+    // "!ticket.resolvedAt" alone, that condition also gates whether to
+    // email the requester below, so a re-resolve after a reopen doesn't
+    // silently re-notify.
+    const isFirstResolution = !!toStatusDef?.isTerminal && !ticket.resolvedAt;
+    if (isFirstResolution) {
       // Another v1 simplification: this schema has no distinct "resolved but
       // not yet closed" concept beyond the isTerminal flag, so reaching any
       // terminal status stamps both resolvedAt and closedAt together.
@@ -791,8 +796,9 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       data.closedAt = now;
     }
 
+    let updated;
     try {
-      return await this.prisma.ticket.update({
+      updated = await this.prisma.ticket.update({
         where: { id, rowVersion: ticket.rowVersion },
         data: { ...data, rowVersion: { increment: 1 } },
         include: TICKET_INCLUDE,
@@ -803,6 +809,26 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       }
       throw err;
     }
+
+    // Deepak's ask (2026-08-25): once email is connected, the requester
+    // should actually hear that their ticket got resolved, not just see it
+    // update in an app they may not be checking. Best-effort — see
+    // MailerService: a broken/unset SMTP config just logs and skips, it
+    // never fails the transition itself.
+    if (isFirstResolution) {
+      const displayId = `${updated.department.key}-${updated.ticketNumber}`;
+      await this.notifications.notifyRequester(
+        updated.customer.email,
+        'TICKET_RESOLVED',
+        { ticketId: updated.id, displayId, subject: updated.subject },
+        {
+          subject: `[${displayId}] Resolved — ${updated.subject}`,
+          body: `Your ticket "${updated.subject}" has been marked "${toStatusDef?.label ?? toStatusKey}".\n\nIf this doesn't look right, reply on the ticket in the Ticket Platform and it'll get looked at again.`,
+        },
+      );
+    }
+
+    return updated;
   }
 
   // ── Internal-helpdesk requester mapping ─────────────────────────────
