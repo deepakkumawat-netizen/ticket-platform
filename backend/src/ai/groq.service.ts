@@ -22,8 +22,11 @@ export class GroqService {
 
   private get model(): string {
     // Override via GROQ_MODEL if this default is ever retired — same
-    // pattern as GEMINI_MODEL. llama-3.3-70b-versatile as of 2026-08-25.
-    return this.config.get<string>('GROQ_MODEL') ?? 'llama-3.3-70b-versatile';
+    // pattern as GEMINI_MODEL. Was llama-3.3-70b-versatile (picked
+    // 2026-08-25), but Groq dropped that model — live-confirmed 404
+    // "does not exist or you do not have access to it" on 2026-08-31.
+    // Switched to openai/gpt-oss-20b, Groq's fastest current production model.
+    return this.config.get<string>('GROQ_MODEL') ?? 'openai/gpt-oss-20b';
   }
 
   // Same (prompt, optional Gemini-shaped schema) -> raw string contract as
