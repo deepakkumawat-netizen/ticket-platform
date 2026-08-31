@@ -30,6 +30,21 @@ const TICKET_INCLUDE = {
   department: { select: { key: true, name: true } },
 };
 
+// TICKET_INCLUDE plus the frozen ticketTypeVersion schema — deliberately
+// NOT folded into TICKET_INCLUDE itself, since list() also uses that and a
+// ticket list of up to 200 rows doesn't need this schema blob duplicated on
+// every row. Used by every endpoint whose response TicketDetailPage.tsx
+// might drop straight into its `ticket` state (getByIdOrThrow, assign,
+// transition) — that page reads `ticket.ticketTypeVersion.statusSchemaSnapshot`
+// unconditionally once `ticket` is non-null, so any of those responses
+// missing this field crashes the page on the very next render (live-caught
+// 2026-08-31: assign()/transition() were TICKET_INCLUDE-only and did
+// exactly that).
+const TICKET_DETAIL_INCLUDE = {
+  ...TICKET_INCLUDE,
+  ticketTypeVersion: { select: { statusSchemaSnapshot: true, fieldSchemaSnapshot: true, versionNumber: true } },
+};
+
 // staffAuthor is populated for every comment in v1 (agents/employees are all
 // Users) — customerAuthor exists on the model for the dormant /portal/*
 // surface but nothing writes it yet.
@@ -408,10 +423,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
   async getByIdOrThrow(staff: StaffJwtPayload, id: string) {
     const ticket = await this.prisma.ticket.findUnique({
       where: { id },
-      include: {
-        ...TICKET_INCLUDE,
-        ticketTypeVersion: { select: { statusSchemaSnapshot: true, fieldSchemaSnapshot: true, versionNumber: true } },
-      },
+      include: TICKET_DETAIL_INCLUDE,
     });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
@@ -648,7 +660,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     // getting a clean "reload and try again".
     let updated;
     try {
-      updated = await this.prisma.ticket.update({ where: { id, rowVersion: ticket.rowVersion }, data, include: TICKET_INCLUDE });
+      updated = await this.prisma.ticket.update({ where: { id, rowVersion: ticket.rowVersion }, data, include: TICKET_DETAIL_INCLUDE });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
         throw new ConflictException('This ticket was modified by someone else — reload and try again');
@@ -714,7 +726,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
   // active alert" queries (dashboards, notification fan-out) filter on.
 
   async escalate(staff: StaffJwtPayload, id: string, note?: string) {
-    const ticket = await this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+    const ticket = await this.prisma.ticket.findUnique({ where: { id }, include: TICKET_DETAIL_INCLUDE });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
     if (ticket.isEscalated) return ticket; // idempotent — already flagged, nothing to do
@@ -722,7 +734,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     const updated = await this.prisma.ticket.update({
       where: { id },
       data: { isEscalated: true, escalatedAt: new Date(), escalationReason: EscalationReason.MANUAL },
-      include: TICKET_INCLUDE,
+      include: TICKET_DETAIL_INCLUDE,
     });
 
     await this.prisma.auditLog.create({
@@ -752,7 +764,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     const updated = await this.prisma.ticket.update({
       where: { id },
       data: { escalationAcknowledgedAt: new Date(), escalationAcknowledgedByUserId: staff.sub },
-      include: TICKET_INCLUDE,
+      include: TICKET_DETAIL_INCLUDE,
     });
 
     await this.prisma.auditLog.create({
@@ -840,12 +852,12 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     const ticket = await this.prisma.ticket.findUnique({ where: { id } });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
-    if (ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+    if (ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_DETAIL_INCLUDE });
 
     const updated = await this.prisma.ticket.update({
       where: { id },
       data: { isArchived: true, archivedAt: new Date(), archivedByUserId: staff.sub },
-      include: TICKET_INCLUDE,
+      include: TICKET_DETAIL_INCLUDE,
     });
     await this.prisma.auditLog.create({
       data: { orgId: staff.orgId, actorType: 'STAFF', actorUserId: staff.sub, action: 'TICKET_ARCHIVED', entityType: 'Ticket', entityId: id },
@@ -857,12 +869,12 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     const ticket = await this.prisma.ticket.findUnique({ where: { id } });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
-    if (!ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_INCLUDE });
+    if (!ticket.isArchived) return this.prisma.ticket.findUnique({ where: { id }, include: TICKET_DETAIL_INCLUDE });
 
     const updated = await this.prisma.ticket.update({
       where: { id },
       data: { isArchived: false, archivedAt: null, archivedByUserId: null },
-      include: TICKET_INCLUDE,
+      include: TICKET_DETAIL_INCLUDE,
     });
     await this.prisma.auditLog.create({
       data: { orgId: staff.orgId, actorType: 'STAFF', actorUserId: staff.sub, action: 'TICKET_UNARCHIVED', entityType: 'Ticket', entityId: id },
@@ -920,7 +932,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       updated = await this.prisma.ticket.update({
         where: { id, rowVersion: ticket.rowVersion },
         data: { ...data, rowVersion: { increment: 1 } },
-        include: TICKET_INCLUDE,
+        include: TICKET_DETAIL_INCLUDE,
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
