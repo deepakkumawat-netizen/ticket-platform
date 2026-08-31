@@ -46,6 +46,11 @@ export function NewTicketPage() {
   const [showNewRequester, setShowNewRequester] = useState(false);
   const [newRequesterName, setNewRequesterName] = useState('');
   const [newRequesterEmail, setNewRequesterEmail] = useState('');
+  // Separate from the page-level `error` below — that one renders at the
+  // very bottom of the whole form, far from this mini add-person form, so a
+  // failure here (e.g. duplicate email) looked like "the Add button does
+  // nothing" (reported 2026-08-31). This one renders right next to Add.
+  const [newRequesterError, setNewRequesterError] = useState<string | null>(null);
 
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
@@ -118,15 +123,16 @@ export function NewTicketPage() {
 
   async function onCreateExternalRequester(e: FormEvent) {
     e.preventDefault();
-    setError(null);
+    setNewRequesterError(null);
     try {
       const created = await api.createCustomer({ name: newRequesterName, email: newRequesterEmail }, token);
       setSelectedRequester({ kind: 'external', id: created.id, name: created.name, email: created.email, company: created.company });
       setShowNewRequester(false);
     } catch (err) {
-      // Without this, a failure (e.g. that email already exists) threw
-      // silently — the form just sat there looking unresponsive.
-      setError(err instanceof Error ? err.message : 'Could not add this person');
+      // Shown right next to the Add button (see newRequesterError above) —
+      // it used to set the page-level `error`, which renders at the bottom
+      // of the whole form and looked like the button did nothing.
+      setNewRequesterError(err instanceof Error ? err.message : 'Could not add this person');
     }
   }
 
@@ -243,11 +249,12 @@ export function NewTicketPage() {
             <div className="new-customer-form">
               <input placeholder="Name" value={newRequesterName} onChange={(e) => setNewRequesterName(e.target.value)} required />
               <input placeholder="Email" type="email" value={newRequesterEmail} onChange={(e) => setNewRequesterEmail(e.target.value)} required />
+              {newRequesterError && <p className="error">{newRequesterError}</p>}
               <div className="row-actions">
                 <button type="button" onClick={onCreateExternalRequester}>
                   Add
                 </button>
-                <button type="button" onClick={() => setShowNewRequester(false)}>
+                <button type="button" onClick={() => { setShowNewRequester(false); setNewRequesterError(null); }}>
                   Cancel
                 </button>
               </div>
@@ -270,7 +277,7 @@ export function NewTicketPage() {
                   ))}
                 </ul>
               )}
-              <button type="button" onClick={() => setShowNewRequester(true)}>
+              <button type="button" onClick={() => { setShowNewRequester(true); setNewRequesterError(null); }}>
                 + Someone not on this list
               </button>
             </div>
