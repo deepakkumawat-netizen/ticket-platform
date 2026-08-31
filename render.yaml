@@ -74,16 +74,31 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL
-        value: llama-3.3-70b-versatile # override here if this default is ever retired — see groq.service.ts
+        value: openai/gpt-oss-20b # override here if this default is ever retired — see groq.service.ts (was llama-3.3-70b-versatile, Groq dropped it 2026-08-31)
       - key: SIGNUP_ALLOWED_EMAIL_DOMAINS
         value: codevidhya.com # comma-separated; public EMPLOYEE self-signup (auth.service.ts) only accepts these domains
       # Escalation-notification emails (backend/src/notifications/mailer.service.ts).
       # Leaving these unset is safe — MailerService just logs and skips
-      # sending instead of throwing. Using Gmail: smtp.gmail.com / 587 /
-      # your Gmail address for both USER and FROM / a 16-character "App
-      # Password" (NOT your normal Gmail password) from
-      # myaccount.google.com/apppasswords, which requires 2-Step
-      # Verification to be turned on first.
+      # sending instead of throwing.
+      #
+      # RESEND_API_KEY is the preferred path (Deepak's pick, 2026-08-31):
+      # Render's free plan blocks outbound SMTP entirely (ports 25/465/587,
+      # live-confirmed via persistent "Connection timeout" on every send) —
+      # Resend is a plain HTTPS API so it isn't affected. Get a free key at
+      # resend.com/api-keys (100 emails/day, no card needed). Until you
+      # verify your own domain there, RESEND_FROM can only actually deliver
+      # to the email you signed up with — verify codevidhya.com in Resend's
+      # dashboard to send to real requesters/agents.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        value: onboarding@resend.dev # switch to something @codevidhya.com once that domain is verified in Resend
+      # SMTP fallback — only used if RESEND_API_KEY is unset. Kept for a
+      # future non-Render deploy or a paid Render plan (which lifts the SMTP
+      # port block). Using Gmail: smtp.gmail.com / 587 / your Gmail address
+      # for both USER and FROM / a 16-character "App Password" (NOT your
+      # normal Gmail password) from myaccount.google.com/apppasswords,
+      # which requires 2-Step Verification to be turned on first.
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
