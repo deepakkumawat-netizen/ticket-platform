@@ -142,7 +142,7 @@ function NotificationBell() {
               onClick={() => onItemClick(n)}
             >
               <span className="notification-item-title">
-                {n.type === 'TICKET_ESCALATED' ? '🚩 ' : n.type === 'TICKET_MANAGER_FYI' ? '📣 ' : ''}
+                {n.type === 'TICKET_ESCALATED' ? '🚩 ' : n.type === 'TICKET_MANAGER_FYI' ? '📣 ' : n.type === 'TICKET_ASSIGNED_TO_YOU' ? '📋 ' : ''}
                 {n.payload.displayId ? `${n.payload.displayId} — ` : ''}
                 {n.payload.subject ?? n.type}
               </span>

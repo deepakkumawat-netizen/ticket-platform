@@ -34,16 +34,20 @@ function makeCreateHarness(candidates: { id: string; name: string }[], geminiImp
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation(({ data }) => {
         ticketCreateCalls.push(data);
-        return { id: 'ticket-new', ...data };
+        // department/ticketNumber mirror what the real TICKET_INCLUDE select
+        // would carry back — needed for the "{key}-{number}" displayId built
+        // by notifyAgentAssigned.
+        return { id: 'ticket-new', ...data, department: { key: 'TECH' }, ticketNumber: 1 };
       }),
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
   const ticketTypes = { getLatestPublishedVersion: jest.fn().mockResolvedValue(VERSION) };
-  const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn() };
+  const notify = jest.fn().mockResolvedValue(undefined);
+  const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn(), notify };
   const gemini = { generateJson: jest.fn().mockImplementation(geminiImpl ?? (() => Promise.reject(new Error('unexpected call')))) };
   const service = new TicketsService(prisma as any, ticketTypes as any, notifications as any, gemini as any, {} as any);
-  return { service, prisma, gemini, ticketCreateCalls, auditLogCalls };
+  return { service, prisma, gemini, ticketCreateCalls, auditLogCalls, notify };
 }
 
 const BASE_DTO = { ticketTypeDefinitionId: 'tt-1', customerId: 'cust-1', priority: 'MEDIUM', subject: 'WiFi is down', description: 'Cannot connect since morning' };
@@ -108,5 +112,28 @@ describe('TicketsService.create — AI auto-assign', () => {
     const ticket = await service.create(STAFF, 'dept-tech', BASE_DTO as any);
     expect(ticketCreateCalls[0].assignedAgentId).toBeNull();
     expect(ticket.autoAssignReasoning).toBeNull();
+  });
+});
+
+// Agent-facing counterpart to the requester-email tests in tickets.service.spec.ts
+// (Deepak's ask, 2026-08-31): whoever a ticket lands on should be told, not just
+// the requester who raised it.
+describe('TicketsService.create — agent notification', () => {
+  it('notifies the auto-assigned agent once a real agent is picked', async () => {
+    const { service, prisma, notify } = makeCreateHarness([{ id: 'agent-1', name: 'Alex' }]);
+    prisma.user.findUnique.mockResolvedValue({ id: 'agent-1', email: 'alex@codevidhya.com' });
+    await service.create(STAFF, 'dept-tech', BASE_DTO as any);
+    expect(notify).toHaveBeenCalledWith(
+      [{ id: 'agent-1', email: 'alex@codevidhya.com' }],
+      'TICKET_ASSIGNED_TO_YOU',
+      expect.objectContaining({ subject: BASE_DTO.subject }),
+      expect.objectContaining({ subject: expect.stringContaining('New ticket assigned to you') }),
+    );
+  });
+
+  it('does not notify anyone when the ticket is left unassigned', async () => {
+    const { service, notify } = makeCreateHarness([]);
+    await service.create(STAFF, 'dept-tech', BASE_DTO as any);
+    expect(notify).not.toHaveBeenCalled();
   });
 });

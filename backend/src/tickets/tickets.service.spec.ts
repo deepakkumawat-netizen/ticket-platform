@@ -34,6 +34,7 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
   const notifyDepartmentManagers = jest.fn().mockResolvedValue(undefined);
   const markReadForTicket = jest.fn().mockResolvedValue(undefined);
   const notifyRequester = jest.fn().mockResolvedValue(undefined);
+  const notify = jest.fn().mockResolvedValue(undefined);
   const prisma = {
     ticket: {
       findUnique: jest.fn().mockResolvedValue(ticket),
@@ -51,16 +52,23 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
       }),
     },
     user: {
-      findUnique: jest.fn().mockResolvedValue({ id: 'agent-b', departmentId: opts.agentDepartmentId ?? 'dept-tech' }),
+      // Also stands in for notifyAgentAssigned's email lookup — real code
+      // never asks for departmentId and email in the same call, but a
+      // single mock covering both keeps this harness simple.
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'agent-b',
+        departmentId: opts.agentDepartmentId ?? 'dept-tech',
+        email: 'agent-b@codevidhya.com',
+      }),
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
   };
-  const notifications = { notifyDepartmentManagers, markReadForTicket, notifyRequester };
+  const notifications = { notifyDepartmentManagers, markReadForTicket, notifyRequester, notify };
   // Not exercised by these tests (create()/auto-assign has its own spec) —
   // just needs to exist so the constructor call type-checks.
   const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any, {} as any);
-  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket, notifyRequester };
+  return { service, prisma, updateCalls, auditLogCalls, notifyDepartmentManagers, markReadForTicket, notifyRequester, notify };
 }
 
 describe('TicketsService.assign — reassignment-threshold escalation', () => {
@@ -141,6 +149,17 @@ describe('TicketsService.assign — tracking history / requester email', () => {
     );
   });
 
+  it('also notifies the agent themselves when newly assigned (2026-08-31)', async () => {
+    const { service, notify } = makeService(makeTicket({ assignedAgentId: null }));
+    await service.assign(STAFF, 'ticket-1', 'agent-b');
+    expect(notify).toHaveBeenCalledWith(
+      [{ id: 'agent-b', email: 'agent-b@codevidhya.com' }],
+      'TICKET_ASSIGNED_TO_YOU',
+      expect.objectContaining({ ticketId: 'ticket-1' }),
+      expect.objectContaining({ subject: expect.stringContaining('New ticket assigned to you') }),
+    );
+  });
+
   it('logs TICKET_ASSIGNED and emails again on a reassignment to a different agent', async () => {
     const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
     await service.assign(STAFF, 'ticket-1', 'agent-b');
@@ -149,10 +168,11 @@ describe('TicketsService.assign — tracking history / requester email', () => {
   });
 
   it('does not log or email on unassigning (no new agent to announce)', async () => {
-    const { service, auditLogCalls, notifyRequester } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
+    const { service, auditLogCalls, notifyRequester, notify } = makeService(makeTicket({ assignedAgentId: 'agent-a' }));
     await service.assign(STAFF, 'ticket-1', null);
     expect(auditLogCalls.some((c: any) => c.action === 'TICKET_ASSIGNED')).toBe(true); // still logged, for the record
     expect(notifyRequester).not.toHaveBeenCalled(); // but nobody to announce as "now working on it"
+    expect(notify).not.toHaveBeenCalled(); // and no agent to tell either
   });
 
   it('does not log or email a no-op re-save of the same agent', async () => {

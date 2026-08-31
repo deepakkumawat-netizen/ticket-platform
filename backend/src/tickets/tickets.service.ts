@@ -211,11 +211,38 @@ export class TicketsService {
       });
     }
 
+    if (assignedAgentId) {
+      const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
+      await this.notifyAgentAssigned(ticket.id, assignedAgentId, dto.subject, displayId);
+    }
+
     // Not a persisted Ticket field — a one-time explanation for the create
     // response only, so NewTicketPage/RaiseTicketPage can show it once right
     // after creation (see their onSubmit handlers). A later GET of this same
     // ticket won't carry it, same as AI triage's reasoning isn't stored either.
     return { ...ticket, autoAssignReasoning };
+  }
+
+  /** Agent-facing counterpart to notifyRequester's assignment email (Deepak's
+   * ask, 2026-08-31) — until now only the requester learned a ticket had
+   * been picked up; the agent it landed on had to notice by checking the
+   * queue. Fires from both create() (explicit pick or AI auto-assign) and
+   * assign() (manual reassignment). Best-effort: looks the agent's email up
+   * fresh rather than widening the shared TICKET_INCLUDE select just for
+   * this, and no-ops quietly if the agent can't be found — a missing
+   * notification must never block the ticket action that triggered it. */
+  private async notifyAgentAssigned(ticketId: string, agentId: string, subject: string, displayId: string) {
+    const agent = await this.prisma.user.findUnique({ where: { id: agentId }, select: { id: true, email: true } });
+    if (!agent) return;
+    await this.notifications.notify(
+      [{ id: agent.id, email: agent.email }],
+      'TICKET_ASSIGNED_TO_YOU',
+      { ticketId, displayId, subject },
+      {
+        subject: `[${displayId}] New ticket assigned to you`,
+        body: `The ticket "${subject}" has been assigned to you.`,
+      },
+    );
   }
 
   // ── AI auto-assign ────────────────────────────────────────────────────
@@ -672,6 +699,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
             body: `Your ticket "${updated.subject}" is now being worked on by ${updated.assignedAgent.name}.`,
           },
         );
+        await this.notifyAgentAssigned(updated.id, updated.assignedAgentId, updated.subject, displayId);
       }
     }
 
