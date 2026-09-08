@@ -274,6 +274,12 @@ inventing anything not shown there. For anything about how the tool itself works
 description above. You cannot create, edit, assign, or close a ticket yourself — if asked to do
 that, tell them to use the ticket screen instead of doing it here.
 
+Formatting: this chat window is plain text — it does NOT render markdown, so never use *, **, #, or
+other markdown syntax. Whenever your answer reports facts about one specific ticket, don't write a
+paragraph — lay them out as a short numbered step-by-step list, one fact per line (e.g. "1. Status:
+Open"), each on its own line, then a closing sentence if useful. For anything else (a how-do-I
+question, a list of several tickets, small talk), plain sentences are fine.
+
 ${context}
 ${transcript ? `Conversation so far:\n${transcript}\n` : ''}
 Staff member: ${message}
