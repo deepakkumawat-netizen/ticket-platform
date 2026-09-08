@@ -9,6 +9,22 @@ import { GeminiService } from './gemini.service';
 type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
 type LanguageCheckResult = { flagged: boolean; reason: string };
 type ChatTurn = { role: 'user' | 'assistant'; text: string };
+
+// Static context so the chat assistant can answer "how do I do X" questions
+// about the tool itself, not just ticket data — added 2026-09-08 after live
+// testing showed it had nothing to say beyond "I don't have access to the
+// ticket database" for anything not already in its recent-10-tickets list.
+const TOOL_BLURB = `This tool is an internal IT/helpdesk ticket platform. Staff raise tickets
+against a department (e.g. TECH, OPERATIONS); each ticket gets a human-facing ID like "TECH-42"
+(department key + a number) — that's what people mean by "ticket ID" or "ticket number". Roles:
+EMPLOYEE (self-service — can only raise and view their own tickets, under "My Tickets"), AGENT
+(works tickets in their department), DEPT_ADMIN (manages a department, including escalations),
+SUPER_ADMIN (org-wide access to everything). Tickets move through a status flow defined per ticket
+type (e.g. Open -> In Progress -> Resolved), can be commented on (internal notes vs public replies
+visible to the requester), can have files attached, can be escalated to a department manager, and
+can be archived (soft-removed from the active queue, reversible). There's also built-in AI triage
+(suggests a ticket type + priority while raising a ticket), AI draft-reply, and AI dashboard
+insights — all "suggest only", a human always confirms/sends.`;
 type BulkAssistItem = {
   ticketId: string;
   displayId: string;
@@ -243,15 +259,20 @@ ${JSON.stringify(data)}`;
   // one prompt each time rather than Gemini's own multi-turn `contents`
   // array — simpler, and plenty for a short back-and-forth at this scale.
   async chat(staff: StaffJwtPayload, message: string, history: ChatTurn[] = []): Promise<{ reply: string }> {
-    const context = await this.buildChatContext(staff);
+    const context = await this.buildChatContext(staff, message);
     const transcript = history.map((t) => `${t.role === 'user' ? 'Staff member' : 'Assistant'}: ${t.text}`).join('\n');
 
     const prompt = `You are a helpful assistant embedded in an internal IT/support helpdesk tool. Answer
 the staff member's question conversationally and concisely (2-4 sentences unless real detail is
-needed). Below is a short list of tickets they're allowed to see right now — use it to answer
-questions about ticket status/assignment, but say you're not sure rather than inventing anything not
-shown there. You cannot create, edit, assign, or close a ticket yourself — if asked to do that, tell
-them to use the ticket screen instead of doing it here.
+needed).
+
+${TOOL_BLURB}
+
+Below is what you currently know about tickets relevant to this staff member — use it to answer
+questions about a specific ticket or their recent tickets, but say you're not sure rather than
+inventing anything not shown there. For anything about how the tool itself works, answer from the
+description above. You cannot create, edit, assign, or close a ticket yourself — if asked to do
+that, tell them to use the ticket screen instead of doing it here.
 
 ${context}
 ${transcript ? `Conversation so far:\n${transcript}\n` : ''}
@@ -262,24 +283,86 @@ Assistant:`;
     return { reply: reply.trim() };
   }
 
-  private async buildChatContext(staff: StaffJwtPayload): Promise<string> {
+  // If the staff member mentioned a ticket by its display ID (e.g. "TECH-42",
+  // "ticket 42", "#42"), pull that ticket up in full regardless of whether
+  // it's one of their 10 most recent — that's the "ask about his ticket by
+  // ticket ID" case, which the old recent-10-only context couldn't answer
+  // once a ticket aged out of the list.
+  private extractTicketNumber(message: string): number | null {
+    const dashMatch = message.match(/\b[A-Za-z]{2,15}-(\d{1,9})\b/);
+    if (dashMatch) return Number(dashMatch[1]);
+    const wordMatch = message.match(/\bticket\s*#?\s*(\d{1,9})\b/i) ?? message.match(/#(\d{1,9})\b/);
+    return wordMatch ? Number(wordMatch[1]) : null;
+  }
+
+  private describeTicketForChat(ticket: NonNullable<Awaited<ReturnType<TicketsService['findByTicketNumberForChat']>>>): string {
+    const statusSchema = ticket.ticketTypeVersion.statusSchemaSnapshot as unknown as { statuses: { key: string; label: string }[] };
+    const statusLabel = statusSchema.statuses.find((s) => s.key === ticket.statusKey)?.label ?? ticket.statusKey;
+    return `- ID: ${ticket.department.key}-${ticket.ticketNumber}
+- Subject: ${ticket.subject}
+- Description: ${ticket.description}
+- Status: ${statusLabel}
+- Priority: ${ticket.priority}
+- Assigned to: ${ticket.assignedAgent?.name ?? 'nobody yet'}
+- Raised by: ${ticket.customer.name}
+- Escalated: ${ticket.isEscalated ? 'yes' : 'no'}
+- Resolved: ${ticket.resolvedAt ? 'yes' : 'no'}`;
+  }
+
+  private async buildChatContext(staff: StaffJwtPayload, message: string): Promise<string> {
+    const parts: string[] = [];
+
+    const ticketNumber = this.extractTicketNumber(message);
+    if (ticketNumber !== null) {
+      const ticket = await this.tickets.findByTicketNumberForChat(staff, ticketNumber);
+      parts.push(
+        ticket
+          ? `The staff member asked about a specific ticket. Here is everything known about it:\n${this.describeTicketForChat(ticket)}`
+          : `The staff member mentioned ticket number ${ticketNumber}, but no such ticket exists that they have access to — say so rather than guessing at its details.`,
+      );
+    }
+
     if (staff.role === StaffRole.EMPLOYEE) {
       const mine = await this.tickets.listMine(staff);
-      if (mine.length === 0) return "This person hasn't raised any tickets yet.";
-      return `Their recent tickets:\n${mine
-        .slice(0, 10)
-        .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, priority ${t.priority}`)
-        .join('\n')}`;
+      parts.push(
+        mine.length === 0
+          ? "This person hasn't raised any tickets yet."
+          : `Their recent tickets:\n${mine
+              .slice(0, 10)
+              .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, priority ${t.priority}`)
+              .join('\n')}`,
+      );
+    } else if (staff.departmentId) {
+      const deptTickets = await this.tickets.list(staff.departmentId, {});
+      parts.push(
+        deptTickets.length === 0
+          ? "This department has no tickets yet."
+          : `Recent tickets in their department:\n${deptTickets
+              .slice(0, 10)
+              .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, assigned to ${t.assignedAgent?.name ?? 'nobody'}`)
+              .join('\n')}`,
+      );
+    } else {
+      // SUPER_ADMIN has no single departmentId (org-wide, not
+      // department-scoped) — show a recent cross-department slice instead of
+      // nothing, so this role isn't stuck with "answer generally" as the
+      // only option (that's what produced the "I don't have access to the
+      // ticket database" reply live-caught 2026-09-08).
+      const recent = await this.prisma.ticket.findMany({
+        where: { orgId: staff.orgId, isArchived: false },
+        include: { department: { select: { key: true } }, assignedAgent: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      });
+      parts.push(
+        recent.length === 0
+          ? 'No tickets exist in this organization yet.'
+          : `Recent tickets across all departments:\n${recent
+              .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, assigned to ${t.assignedAgent?.name ?? 'nobody'}`)
+              .join('\n')}`,
+      );
     }
-    // SUPER_ADMIN has no single departmentId (org-wide, not department-scoped)
-    // — no ticket list narrow enough to be worth showing, so it's a general
-    // assistant only for that role.
-    if (!staff.departmentId) return 'No specific ticket list is available for this role — answer generally.';
-    const deptTickets = await this.tickets.list(staff.departmentId, {});
-    if (deptTickets.length === 0) return "This department has no tickets yet.";
-    return `Recent tickets in their department:\n${deptTickets
-      .slice(0, 10)
-      .map((t) => `- ${t.department.key}-${t.ticketNumber}: "${t.subject}" — status ${t.statusKey}, assigned to ${t.assignedAgent?.name ?? 'nobody'}`)
-      .join('\n')}`;
+
+    return parts.join('\n\n');
   }
 }

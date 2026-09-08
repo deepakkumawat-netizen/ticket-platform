@@ -430,6 +430,35 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     return ticket;
   }
 
+  // Looks a ticket up by its human-facing number (the digits in "TECH-42")
+  // rather than its cuid — for ai.service.ts's chat assistant, which only
+  // ever sees the display ID a staff member typed, never the real id.
+  // ticketNumber is a single global sequence (not per-department, see the
+  // schema comment on Ticket.ticketNumber), so the department key prefix
+  // isn't needed to disambiguate — it's accepted for readability only, not
+  // matched against. Returns null rather than throwing on "not found" OR
+  // "found but not yours to see" — same "no signal either way" reasoning as
+  // getMineOrThrow, since this is used to build AI context, not to serve a
+  // real detail page.
+  async findByTicketNumberForChat(staff: StaffJwtPayload, ticketNumber: number) {
+    const ticket = await this.prisma.ticket.findUnique({
+      where: { ticketNumber },
+      include: TICKET_DETAIL_INCLUDE,
+    });
+    if (!ticket) return null;
+    try {
+      if (staff.role === StaffRole.EMPLOYEE) {
+        const customerId = await this.myCustomerId(staff);
+        if (!customerId || ticket.customerId !== customerId) return null;
+      } else {
+        this.assertStaffCanAccessTicket(staff, ticket.departmentId);
+      }
+    } catch {
+      return null;
+    }
+    return ticket;
+  }
+
   // ── Comments ──────────────────────────────────────────────────────────
   // Two visibilities: INTERNAL (agent notes, department-only — never shown
   // to the requester) and PUBLIC (also shown on the requester's own
