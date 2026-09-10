@@ -158,11 +158,14 @@ export class TicketTypesService {
   }
 
   // Turning a department "live" is meaningless if it has nothing to raise a
-  // ticket against — this is the same starter content seed.ts provisions for
-  // TECH (see seedReadyToUseTechSetup), reused so activating ANY department
-  // from the admin UI (departments.service.ts's update()) makes it
-  // immediately usable in one click instead of a half-working toggle that
-  // needs someone to hand-author a ticket type via the API first.
+  // ticket against — same idea as seed.ts's seedReadyToUseDepartmentSetup
+  // (which checks for this before creating its own, so the two never
+  // double-provision — caught live for HR, 2026-09-10, when the department
+  // had already been activated here before seed.ts ever ran against it),
+  // reused so activating ANY department from the admin UI
+  // (departments.service.ts's update()) makes it immediately usable in one
+  // click instead of a half-working toggle that needs someone to
+  // hand-author a ticket type via the API first.
   async provisionDefaultTicketType(departmentId: string, publishedByUserId: string) {
     const def = await this.prisma.ticketTypeDefinition.create({
       data: { departmentId, key: 'general-support', name: 'General Support', description: 'Default catch-all ticket type.' },

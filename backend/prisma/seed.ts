@@ -66,7 +66,17 @@ async function main() {
   // self-service login: raises tickets to any live department, sees only
   // its own via /my-tickets.
   await seedStaffMember(org.id, null, 'employee@codevidhya.com', 'Sample Employee', StaffRole.EMPLOYEE);
-  await seedReadyToUseTechSetup(techDept.id, superAdmin.id);
+  await seedReadyToUseDepartmentSetup(techDept.id, superAdmin.id, 'general-support', 'General Support');
+
+  // HR (Deepak's ask, 2026-09-10): had no agent/manager and was never
+  // activated, unlike TECH — same treatment, so it's usable end-to-end
+  // out of the box instead of a dead department in the dropdown.
+  const hrDept = await prisma.department.findUniqueOrThrow({
+    where: { orgId_key: { orgId: org.id, key: DepartmentKey.HR } },
+  });
+  await seedStaffMember(org.id, hrDept.id, 'hr-agent@codevidhya.com', 'HR Agent', StaffRole.AGENT);
+  await seedStaffMember(org.id, hrDept.id, 'hr-manager@codevidhya.com', 'HR Manager', StaffRole.DEPT_ADMIN);
+  await seedReadyToUseDepartmentSetup(hrDept.id, superAdmin.id, 'hr-request', 'HR Request');
 }
 
 async function seedStaffMember(orgId: string, departmentId: string | null, email: string, name: string, role: StaffRole) {
@@ -81,30 +91,45 @@ async function seedStaffMember(orgId: string, departmentId: string | null, email
   return user;
 }
 
-// Flips TECH live (first in the rollout order — see README) and provisions
-// one fully published "General Support" ticket type under it, so the
-// ticket-creation UI has something real to submit against on day one instead
-// of requiring someone to hand-author a ticket type via curl first. This
-// mirrors exactly what the ticket-types admin UI will eventually do — it's
-// seed data in these same tables, not a special code path.
-async function seedReadyToUseTechSetup(departmentId: string, publishedByUserId: string) {
+// Flips a department live and provisions one fully published catch-all
+// ticket type under it, so the ticket-creation UI has something real to
+// submit against on day one instead of requiring someone to hand-author a
+// ticket type via curl first. This mirrors exactly what the ticket-types
+// admin UI will eventually do — it's seed data in these same tables, not a
+// special code path. Originally TECH-only (first in the rollout order — see
+// README); generalized 2026-09-10 to also seed HR the same way.
+async function seedReadyToUseDepartmentSetup(
+  departmentId: string,
+  publishedByUserId: string,
+  ticketTypeKey: string,
+  ticketTypeName: string,
+) {
   await prisma.department.update({ where: { id: departmentId }, data: { isActive: true } });
 
-  const existing = await prisma.ticketTypeDefinition.findUnique({
-    where: { departmentId_key: { departmentId, key: 'general-support' } },
-  });
+  // Checked by "does this department have ANY ticket type yet", not just
+  // this exact key — activating a department via the admin UI
+  // auto-provisions its own default "General Support" type (see
+  // departments.service.ts), so a department that was switched on that way
+  // BEFORE this script ever touched it already has one under a different
+  // key. Checking only the exact key here (as an earlier version of this
+  // function did) missed that and created a redundant second catch-all type
+  // (caught live for HR, 2026-09-10 — cleaned up by hand that once).
+  const existing = await prisma.ticketTypeDefinition.findFirst({ where: { departmentId } });
   if (existing) return;
 
   const def = await prisma.ticketTypeDefinition.create({
-    data: { departmentId, key: 'general-support', name: 'General Support', description: 'Default catch-all ticket type for TECH.' },
+    data: { departmentId, key: ticketTypeKey, name: ticketTypeName, description: `Default catch-all ticket type for ${ticketTypeName}.` },
   });
 
+  // Generic enough to fit any department's catch-all type (this is seeded
+  // for both TECH and HR) — a real department-specific ticket type would
+  // replace these via the ticket-types admin UI, not edit these directly.
   const fields = await Promise.all([
     prisma.fieldDefinition.create({
-      data: { ticketTypeDefinitionId: def.id, key: 'affectedSystem', label: 'Affected system', fieldType: 'TEXT', appliesTo: 'BOTH', required: false, order: 0 },
+      data: { ticketTypeDefinitionId: def.id, key: 'category', label: 'Category', fieldType: 'TEXT', appliesTo: 'BOTH', required: false, order: 0 },
     }),
     prisma.fieldDefinition.create({
-      data: { ticketTypeDefinitionId: def.id, key: 'stepsToReproduce', label: 'Steps to reproduce', fieldType: 'TEXTAREA', appliesTo: 'BOTH', required: false, order: 1 },
+      data: { ticketTypeDefinitionId: def.id, key: 'additionalDetails', label: 'Additional details', fieldType: 'TEXTAREA', appliesTo: 'BOTH', required: false, order: 1 },
     }),
   ]);
 
@@ -177,7 +202,7 @@ async function seedReadyToUseTechSetup(departmentId: string, publishedByUserId: 
   });
 
   // eslint-disable-next-line no-console
-  console.log('Seeded TECH department (live) with a published "General Support" ticket type.');
+  console.log(`Seeded department (live) with a published "${ticketTypeName}" ticket type.`);
 }
 
 main()
