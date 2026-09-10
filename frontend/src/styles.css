@@ -863,6 +863,19 @@ body {
   color: #b91c1c;
 }
 
+/* Tone variants for a bare .stat-value with no icon (see CeoDashboardPage,
+   which has no per-stat icon set of its own) — same colors as the
+   .stat-icon-* tones above, just applied to the number itself. */
+.stat-value-good {
+  color: #15803d;
+}
+.stat-value-warn {
+  color: #b45309;
+}
+.stat-value-danger {
+  color: #b91c1c;
+}
+
 .dash-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

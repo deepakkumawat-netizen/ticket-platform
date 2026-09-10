@@ -29,6 +29,7 @@ model Organization {
   customers   Customer[]
   users       User[]
   tickets     Ticket[]
+  intakeQueries IntakeQuery[]
   createdAt   DateTime     @default(now())
 }
 
@@ -36,12 +37,13 @@ model Department {
   id        String            @id @default(cuid())
   org       Organization      @relation(fields: [orgId], references: [id])
   orgId     String
-  key       String // TECH | OPERATIONS | CONTENT | SALES
+  key       String // TECH | OPERATIONS | CONTENT | SALES | HR
   name      String
   isActive  Boolean           @default(false) // seeded inactive until onboarded
   users     User[]
   ticketTypes TicketTypeDefinition[]
   tickets   Ticket[]
+  suggestedForIntakeQueries IntakeQuery[]
   createdAt DateTime          @default(now())
 
   @@unique([orgId, key])
@@ -318,6 +320,7 @@ model Ticket {
   rowVersion             Int                  @default(0) // optimistic lock on concurrent transitions
   comments               Comment[]
   attachments            Attachment[]
+  originIntakeQuery      IntakeQuery?         @relation("ConvertedFromIntakeQuery")
 
   // ── Escalation to the department manager (DEPT_ADMIN) ─────────────────
   // See EscalationRule/EscalationReason and sla/notifications modules.
@@ -431,4 +434,67 @@ model Notification {
   payload       Json     @default("{}")
   readAt        DateTime?
   createdAt     DateTime @default(now())
+}
+
+// ── Intake (unauthenticated/system channels) ────────────────────────────
+
+enum IntakeChannel {
+  WEB_FORM
+  INBOUND_EMAIL
+}
+
+enum IntakeQueryStatus {
+  PENDING
+  CONVERTED
+  REJECTED
+}
+
+// Landing zone for every intake channel that has no staff/employee login
+// behind it. Ticket.departmentId/ticketTypeDefinitionId/ticketTypeVersionId
+// are all non-nullable (see Ticket above) — a Ticket literally cannot exist
+// unclassified — so a public web-form submission or an inbound email always
+// lands here first. A human always converts a query into a real Ticket via
+// IntakeService.convert(), a thin wrapper around the existing
+// TicketsService.create(); nothing here duplicates ticket-creation logic,
+// and nothing here is ever auto-converted without that human step.
+model IntakeQuery {
+  id      String            @id @default(cuid())
+  org     Organization      @relation(fields: [orgId], references: [id])
+  orgId   String
+  channel IntakeChannel
+  status  IntakeQueryStatus @default(PENDING)
+
+  // Nullable: an inbound-email payload that doesn't parse cleanly still gets
+  // a row (see rawPayload) instead of being dropped — a human fills these in
+  // during triage if extraction failed.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  companyName  String? // optional B2B hint
+
+  subject     String
+  description String
+
+  // AI/rule suggestion only — same "suggest, never act" pattern as every
+  // other AI feature in ai.service.ts. A human confirms or overrides this at
+  // conversion time; nothing here is binding.
+  suggestedDepartment             Department? @relation(fields: [suggestedDepartmentId], references: [id])
+  suggestedDepartmentId           String?
+  suggestedTicketTypeDefinitionId String?
+  suggestedPriority               String?
+  classificationReasoning         String?
+
+  rawPayload Json? // verbatim inbound payload, always stored, for replay/debugging
+
+  convertedTicket   Ticket?   @relation("ConvertedFromIntakeQuery", fields: [convertedTicketId], references: [id])
+  convertedTicketId String?   @unique
+  rejectedReason    String?
+  reviewedByUserId  String? // plain scalar, no relation — same lightweight pattern as Ticket.archivedByUserId
+  reviewedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status])
+  @@index([suggestedDepartmentId, status])
 }

@@ -22,6 +22,15 @@ export function customerScopeWhere(customer: CustomerJwtPayload): { companyId: s
   return { customerId: customer.sub };
 }
 
+/** Same shape as departmentScopeWhere, keyed on an IntakeQuery's routing
+ * suggestion rather than a ticket's real department — a query nobody's
+ * department has claimed yet (suggestedDepartmentId null) is visible only to
+ * SUPER_ADMIN, mirroring "no signal either way" elsewhere in this file. */
+export function intakeQueryScopeWhere(staff: StaffJwtPayload): { suggestedDepartmentId?: string } {
+  if (staff.role === StaffRole.SUPER_ADMIN) return {};
+  return { suggestedDepartmentId: staff.departmentId ?? '__no_department__' };
+}
+
 /** Throws unless `staff` is allowed to act on `departmentId` — SUPER_ADMIN
  * always is; everyone else must belong to that exact department. Call this
  * at the top of any controller action scoped by a :departmentId route param

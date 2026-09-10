@@ -4,6 +4,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { GeminiModule } from '../ai/gemini.module';
 import { StorageModule } from '../storage/storage.module';
 import { TicketsController } from './tickets.controller';
+import { PortalTicketsController } from './portal-tickets.controller';
 import { TicketsService } from './tickets.service';
 
 @Module({
@@ -13,7 +14,7 @@ import { TicketsService } from './tickets.service';
     GeminiModule, // for AI auto-assign at creation time — see TicketsService.pickBestAgent
     StorageModule, // for attachment upload/download — see storage.service.ts
   ],
-  controllers: [TicketsController],
+  controllers: [TicketsController, PortalTicketsController],
   providers: [TicketsService],
   exports: [TicketsService],
 })

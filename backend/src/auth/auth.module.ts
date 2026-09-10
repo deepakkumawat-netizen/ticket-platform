@@ -23,6 +23,8 @@ import { RecaptchaService } from './recaptcha.service';
   ],
   controllers: [StaffAuthController, PortalAuthController],
   providers: [AuthService, StaffJwtStrategy, CustomerJwtStrategy, RecaptchaService],
-  exports: [AuthService],
+  // RecaptchaService exported so IntakeModule's public lead-form endpoint can
+  // reuse the same bot-check instead of a second implementation.
+  exports: [AuthService, RecaptchaService],
 })
 export class AuthModule {}

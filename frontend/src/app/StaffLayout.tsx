@@ -38,9 +38,14 @@ export function StaffLayout() {
             </>
           ) : (
             <>
-              <NavLink to="/app/dashboard" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+              <NavLink to="/app/dashboard" end className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <GridIcon /> Dashboard
               </NavLink>
+              {isSuperAdmin && (
+                <NavLink to="/app/dashboard/org" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                  <GridIcon /> Org Dashboard
+                </NavLink>
+              )}
               <NavLink to="/app/tickets" end className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <TicketIcon /> Tickets
               </NavLink>
@@ -49,6 +54,9 @@ export function StaffLayout() {
               </NavLink>
               <NavLink to="/app/bulk-assist" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <SparkleIcon /> Bulk AI Assist
+              </NavLink>
+              <NavLink to="/app/intake" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                <InboxIcon /> Intake Queue
               </NavLink>
               {(isSuperAdmin || isDeptAdmin) && (
                 <NavLink to="/app/ticket-types" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
@@ -65,6 +73,9 @@ export function StaffLayout() {
                   </NavLink>
                   <NavLink to="/app/team/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                     <UserPlusIcon /> Add Team Member
+                  </NavLink>
+                  <NavLink to="/app/audit-log" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
+                    <ClipboardIcon /> Audit Log
                   </NavLink>
                 </>
               )}
@@ -198,6 +209,27 @@ function PlusIcon() {
       <circle cx="12" cy="12" r="9" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
+    </svg>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M9 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-4" />
+      <line x1="8" y1="11" x2="16" y2="11" />
+      <line x1="8" y1="15" x2="16" y2="15" />
+      <line x1="8" y1="19" x2="12" y2="19" />
+    </svg>
+  );
+}
+
+function InboxIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z" />
     </svg>
   );
 }

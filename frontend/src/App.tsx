@@ -11,11 +11,15 @@ import { RaiseTicketPage } from './features/tickets/RaiseTicketPage';
 import { MyTicketDetailPage } from './features/tickets/MyTicketDetailPage';
 import { CreateUserPage } from './features/admin/CreateUserPage';
 import { UserDirectoryPage } from './features/admin/UserDirectoryPage';
+import { AuditLogPage } from './features/admin/AuditLogPage';
 import { DepartmentsAdminPage } from './features/admin/DepartmentsAdminPage';
 import { TicketTypesAdminPage } from './features/admin/TicketTypesAdminPage';
 import { TicketTypeBuilderPage } from './features/admin/TicketTypeBuilderPage';
 import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
+import { CeoDashboardPage } from './features/dashboards/CeoDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
+import { PublicLeadFormPage } from './features/intake/PublicLeadFormPage';
+import { IntakeQueuePage } from './features/admin/IntakeQueuePage';
 import { RequireAuth } from './app/RequireAuth';
 import { StaffLayout } from './app/StaffLayout';
 import { staffUser, useStaffToken, useCustomerToken } from './lib/api';
@@ -37,12 +41,17 @@ export default function App() {
 
       <Route path="/staff/login" element={<StaffLoginPage />} />
       <Route path="/staff/signup" element={<StaffSignupPage />} />
+      {/* Public — no login. Anyone can submit a query here; it lands in the
+          staff triage queue (below) rather than becoming a ticket directly. */}
+      <Route path="/contact" element={<PublicLeadFormPage />} />
       <Route element={<RequireAuth useToken={useStaffToken} redirectTo="/staff/login" />}>
         <Route element={<StaffLayout />}>
           <Route path="/app" element={<AppIndex />} />
           <Route path="/app/dashboard" element={<DepartmentDashboardPage />} />
+          <Route path="/app/dashboard/org" element={<CeoDashboardPage />} />
           <Route path="/app/tickets" element={<TicketListPage />} />
           <Route path="/app/bulk-assist" element={<BulkAssistPage />} />
+          <Route path="/app/intake" element={<IntakeQueuePage />} />
           <Route path="/app/tickets/new" element={<NewTicketPage />} />
           <Route path="/app/tickets/:id" element={<TicketDetailPage />} />
           <Route path="/app/my-tickets" element={<MyTicketsPage />} />
@@ -53,6 +62,7 @@ export default function App() {
           <Route path="/app/departments" element={<DepartmentsAdminPage />} />
           <Route path="/app/team" element={<UserDirectoryPage />} />
           <Route path="/app/team/new" element={<CreateUserPage />} />
+          <Route path="/app/audit-log" element={<AuditLogPage />} />
         </Route>
       </Route>
 

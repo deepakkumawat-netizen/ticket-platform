@@ -298,6 +298,31 @@ export type DashboardData = {
   }[];
 };
 
+// The CEO cross-department view — every active department's DashboardData
+// in one response, plus a thin org-level rollup. See
+// DashboardsService.getOrgDashboard, which computes this by calling
+// getDashboard() per department rather than re-deriving any of these numbers.
+export type OrgDashboardDepartment = DashboardData & { departmentId: string; departmentName: string };
+export type OrgDashboardData = {
+  totals: { open: number; total: number; activeEscalations: number; responseBreached: number; resolutionBreached: number };
+  worstSlaDepartment: string | null;
+  departments: OrgDashboardDepartment[];
+};
+
+// A single row from the org-wide audit browser (SUPER_ADMIN only) — every
+// row already existed in AuditLog before this; see backend's AuditService.
+export type AuditLogEntry = {
+  id: string;
+  actorType: string; // STAFF | CUSTOMER | SYSTEM
+  actorUser: { id: string; name: string; role: string } | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  beforeJson: Record<string, unknown> | null;
+  afterJson: Record<string, unknown> | null;
+  createdAt: string;
+};
+
 export type DirectoryUser = {
   id: string;
   name: string;
@@ -317,6 +342,29 @@ export type NotificationItem = {
   type: string; // 'TICKET_ESCALATED' (urgent) | 'TICKET_MANAGER_FYI' (calm, no action needed)
   payload: { ticketId?: string; displayId?: string; subject?: string; reason?: string; note?: string | null };
   readAt: string | null;
+  createdAt: string;
+};
+
+// See backend's IntakeQuery — the staging landing zone for unauthenticated/
+// system intake channels (public web form today). suggested* fields are AI/
+// rule suggestions only, never binding — a human confirms or overrides them
+// at conversion time (see api.convertIntakeQuery).
+export type IntakeQueryStatus = 'PENDING' | 'CONVERTED' | 'REJECTED';
+export type IntakeQuery = {
+  id: string;
+  channel: 'WEB_FORM' | 'INBOUND_EMAIL';
+  status: IntakeQueryStatus;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  companyName: string | null;
+  subject: string;
+  description: string;
+  suggestedDepartment: { id: string; key: string; name: string } | null;
+  suggestedTicketTypeDefinitionId: string | null;
+  suggestedPriority: string | null;
+  classificationReasoning: string | null;
+  rejectedReason: string | null;
   createdAt: string;
 };
 
@@ -476,6 +524,8 @@ export const api = {
 
   getDashboard: (departmentId: string, token: string | null) =>
     request<DashboardData>(`/departments/${departmentId}/dashboard`, { token }),
+  // SUPER_ADMIN only — every active department's dashboard in one response.
+  getOrgDashboard: (token: string | null) => request<OrgDashboardData>('/dashboards/org', { token }),
 
   // ── Notifications (escalation fan-out lands here) ───────────────────
   listNotifications: (token: string | null) => request<NotificationItem[]>('/notifications', { token }),
@@ -540,4 +590,36 @@ export const api = {
     ),
   // "How many people use this tool" — SUPER_ADMIN only, unfiltered roster.
   listUserDirectory: (token: string | null) => request<DirectoryUser[]>('/users/directory', { token }),
+
+  // ── Intake (public web-form + staff triage queue) ───────────────────
+  // Public — no token, that's the whole point (see backend's
+  // IntakePublicController). Never returns the created row or its AI
+  // classification to the caller; nothing for an anonymous visitor to act on.
+  submitIntakeQuery: (
+    dto: { name: string; email: string; phone?: string; companyName?: string; subject: string; description: string },
+    captchaToken: string | undefined,
+  ) => request<{ ok: true; message: string }>('/intake/queries', { method: 'POST', body: JSON.stringify({ ...dto, captchaToken }) }),
+
+  listIntakeQueries: (status: IntakeQueryStatus | undefined, token: string | null) =>
+    request<IntakeQuery[]>(`/intake/queries${status ? `?status=${status}` : ''}`, { token }),
+  convertIntakeQuery: (
+    id: string,
+    dto: { departmentId: string; ticketTypeDefinitionId: string; priority: string; assignedAgentId?: string; customFields?: Record<string, unknown> },
+    token: string | null,
+  ) => request<CreatedTicket>(`/intake/queries/${id}/convert`, { method: 'PATCH', body: JSON.stringify(dto), token }),
+  rejectIntakeQuery: (id: string, reason: string | undefined, token: string | null) =>
+    request<IntakeQuery>(`/intake/queries/${id}/reject`, { method: 'PATCH', body: JSON.stringify({ reason }), token }),
+
+  // ── Org-wide audit log (SUPER_ADMIN only) ────────────────────────────
+  listAuditLog: (filters: { entityType?: string; action?: string }, token: string | null) => {
+    const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as [string, string][]);
+    const qs = params.toString();
+    return request<AuditLogEntry[]>(`/audit-log${qs ? `?${qs}` : ''}`, { token });
+  },
+
+  // ── Customer portal (external /portal/* tree) ───────────────────────
+  // Read-only in v1 — there's no ticket-creation UI here yet, see
+  // PortalHomePage.tsx; the public /contact form is the actual "no login"
+  // intake path today.
+  listPortalTickets: (token: string | null) => request<TicketSummary[]>('/portal/tickets', { token }),
 };

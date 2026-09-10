@@ -136,4 +136,42 @@ export class DashboardsService {
       escalationQueue,
     };
   }
+
+  // ── CEO cross-department view ────────────────────────────────────────
+  // Extends, rather than duplicates, getDashboard() above — calls it once
+  // per active department (in parallel) and wraps the results with a thin
+  // org-level rollup computed from what each call already returns. Nothing
+  // here re-derives SLA/escalation logic a second time. SUPER_ADMIN-only
+  // (see dashboards.controller.ts) — this is the one screen giving a live
+  // view of every department at once, instead of picking one at a time.
+  async getOrgDashboard(orgId: string) {
+    const departments = await this.prisma.department.findMany({
+      where: { orgId, isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+
+    const perDepartment = await Promise.all(
+      departments.map(async (d) => ({ departmentId: d.id, departmentName: d.name, ...(await this.getDashboard(d.id)) })),
+    );
+
+    const totals = perDepartment.reduce(
+      (acc, d) => ({
+        open: acc.open + d.totals.open,
+        total: acc.total + d.totals.total,
+        activeEscalations: acc.activeEscalations + d.escalations.active,
+        responseBreached: acc.responseBreached + d.slaSummary.responseBreached,
+        resolutionBreached: acc.resolutionBreached + d.slaSummary.resolutionBreached,
+      }),
+      { open: 0, total: 0, activeEscalations: 0, responseBreached: 0, resolutionBreached: 0 },
+    );
+
+    const worstSlaDepartment =
+      [...perDepartment]
+        .filter((d) => d.slaSummary.responseBreached + d.slaSummary.resolutionBreached > 0)
+        .sort((a, b) => b.slaSummary.responseBreached + b.slaSummary.resolutionBreached - (a.slaSummary.responseBreached + a.slaSummary.resolutionBreached))[0]
+        ?.departmentName ?? null;
+
+    return { totals, worstSlaDepartment, departments: perDepartment };
+  }
 }

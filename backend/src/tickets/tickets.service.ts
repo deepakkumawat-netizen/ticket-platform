@@ -14,7 +14,8 @@ import { TicketTypesService } from '../ticket-types/ticket-types.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { GeminiService } from '../ai/gemini.service';
 import { StorageService } from '../storage/storage.service';
-import { StaffJwtPayload } from '../auth/jwt-payload.interface';
+import { customerScopeWhere } from '../common/scope';
+import { StaffJwtPayload, CustomerJwtPayload } from '../auth/jwt-payload.interface';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { ListTicketsQueryDto } from './dto/list-tickets.query.dto';
@@ -389,6 +390,24 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     return customer?.id ?? null;
   }
 
+  // ── Customer portal (external /portal/* tree) ───────────────────────
+  // Deliberately separate from listMine/getMineOrThrow above — those are for
+  // an internal EMPLOYEE's self-service view (StaffJwtPayload, scoped by
+  // "am I the requester"); this is for a genuine external Customer login
+  // (CustomerJwtPayload, scoped by customerScopeWhere — their whole
+  // company's tickets for a B2B contact, or just their own for standalone
+  // B2C). Read-only in v1: the portal has no ticket-creation UI yet (see
+  // PortalHomePage.tsx) — the public web lead form (intake module) is the
+  // actual "no login" path today.
+  listForPortalCustomer(customer: CustomerJwtPayload) {
+    return this.prisma.ticket.findMany({
+      where: { orgId: customer.orgId, ...customerScopeWhere(customer) },
+      include: TICKET_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
   // ── List / detail ────────────────────────────────────────────────────
   // Unpaginated + capped, same v1 scope as every other list endpoint in this
   // codebase (departments, ticket-types) — fine for a department's queue at
@@ -477,7 +496,10 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
   }
 
   async addComment(staff: StaffJwtPayload, ticketId: string, dto: CreateCommentDto) {
-    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId } });
+    // Widened to TICKET_INCLUDE (customer/department) rather than a bare
+    // findUnique — needed below to notify the requester by email; the
+    // ticketNumber scalar was already present either way.
+    const ticket = await this.prisma.ticket.findUnique({ where: { id: ticketId }, include: TICKET_INCLUDE });
     if (!ticket) throw new NotFoundException('Ticket not found');
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
     // Default to INTERNAL — an agent note should never leak to the
@@ -493,6 +515,24 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     // comments existed). An INTERNAL note isn't a response, so it doesn't count.
     if (visibility === CommentVisibility.PUBLIC && !ticket.firstRespondedAt) {
       await this.prisma.ticket.update({ where: { id: ticketId }, data: { firstRespondedAt: new Date() } });
+    }
+    // Same "delivery tracker" reasoning as every other requester-facing
+    // notification (assignment, status change, resolution) — a PUBLIC reply
+    // is a real response, so the requester should hear about it without
+    // having to keep the ticket page open. INTERNAL notes never trigger
+    // this (see addMyComment below too — a requester's OWN reply on their
+    // own ticket must never notify themselves about it).
+    if (visibility === CommentVisibility.PUBLIC) {
+      const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
+      await this.notifications.notifyRequester(
+        ticket.customer.email,
+        'TICKET_COMMENT_ADDED',
+        { ticketId: ticket.id, displayId, subject: ticket.subject },
+        {
+          subject: `[${displayId}] New reply — ${ticket.subject}`,
+          body: `There's a new reply on your ticket "${ticket.subject}":\n\n${dto.body}`,
+        },
+      );
     }
     return comment;
   }

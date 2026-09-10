@@ -21,6 +21,7 @@ export const DepartmentKey = {
   OPERATIONS: 'OPERATIONS',
   CONTENT: 'CONTENT',
   SALES: 'SALES',
+  HR: 'HR',
 } as const;
 export type DepartmentKey = (typeof DepartmentKey)[keyof typeof DepartmentKey];
 
@@ -105,3 +106,19 @@ export const PrincipalType = {
   CUSTOMER: 'CUSTOMER',
 } as const;
 export type PrincipalType = (typeof PrincipalType)[keyof typeof PrincipalType];
+
+// Where an IntakeQuery came from — see IntakeQuery in schema.prisma. Every
+// channel here has no staff/employee login behind it, which is exactly why
+// it lands in IntakeQuery instead of becoming a Ticket directly.
+export const IntakeChannel = {
+  WEB_FORM: 'WEB_FORM',
+  INBOUND_EMAIL: 'INBOUND_EMAIL',
+} as const;
+export type IntakeChannel = (typeof IntakeChannel)[keyof typeof IntakeChannel];
+
+export const IntakeQueryStatus = {
+  PENDING: 'PENDING',
+  CONVERTED: 'CONVERTED',
+  REJECTED: 'REJECTED',
+} as const;
+export type IntakeQueryStatus = (typeof IntakeQueryStatus)[keyof typeof IntakeQueryStatus];

@@ -17,6 +17,8 @@ import { DashboardsModule } from './dashboards/dashboards.module';
 import { AiModule } from './ai/ai.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SlaModule } from './sla/sla.module';
+import { IntakeModule } from './intake/intake.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   imports: [
@@ -48,8 +50,8 @@ import { SlaModule } from './sla/sla.module';
     AiModule, // Gemini-powered triage/draft-reply/dashboard-insights — needs GEMINI_API_KEY set to actually work
     NotificationsModule, // in-app + email fan-out — currently just the escalation workflow's delivery mechanism
     SlaModule, // cron job: auto-escalates tickets whose SLA deadline has passed
-    // Next up (Phase 0 continuation): Comments/Attachments, the AI chatbot
-    // (last of the 4 AI features originally scoped).
+    IntakeModule, // unauthenticated intake (public web lead form today) staged into IntakeQuery, converted to a real Ticket by a human
+    AuditModule, // org-wide read-only browser over AuditLog — SUPER_ADMIN only
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

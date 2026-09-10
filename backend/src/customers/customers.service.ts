@@ -43,14 +43,7 @@ export class CustomersService {
       throw new ConflictException('Someone with this email is already in the system — search for them above instead of adding again');
     }
 
-    let companyId: string | undefined;
-    if (dto.companyName) {
-      const existing = await this.prisma.company.findFirst({
-        where: { orgId, name: dto.companyName },
-      });
-      companyId = existing?.id ?? (await this.prisma.company.create({ data: { orgId, name: dto.companyName } })).id;
-    }
-
+    const companyId = await this.resolveCompanyId(orgId, dto.companyName);
     return this.prisma.customer.create({
       data: {
         orgId,
@@ -59,6 +52,32 @@ export class CustomersService {
         phone: dto.phone,
         companyId,
       },
+      include: { company: { select: { id: true, name: true } } },
+    });
+  }
+
+  // Shared by create() above and findOrCreateByEmail() below — finds-or-
+  // creates a Company by name within the org, or returns undefined if no
+  // company name was given (standalone B2C).
+  private async resolveCompanyId(orgId: string, companyName?: string): Promise<string | undefined> {
+    if (!companyName) return undefined;
+    const existing = await this.prisma.company.findFirst({ where: { orgId, name: companyName } });
+    return existing?.id ?? (await this.prisma.company.create({ data: { orgId, name: companyName } })).id;
+  }
+
+  // Idempotent upsert-by-email for system-originated intake (public web
+  // form, inbound email) — unlike create() above (staff-authored, throws
+  // ConflictException on a duplicate email), a repeat submission from the
+  // same address should just resolve to the same Customer. Same dedup
+  // spirit as tickets.service.ts's findOrCreateCustomerForStaff, but keyed
+  // by a raw email/name from an unauthenticated submission instead of an
+  // existing User row.
+  async findOrCreateByEmail(orgId: string, name: string, email: string, phone?: string, companyName?: string) {
+    const companyId = await this.resolveCompanyId(orgId, companyName);
+    return this.prisma.customer.upsert({
+      where: { email },
+      update: companyId ? { companyId } : {},
+      create: { orgId, name, email, phone, companyId },
       include: { company: { select: { id: true, name: true } } },
     });
   }

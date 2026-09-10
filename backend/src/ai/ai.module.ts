@@ -9,5 +9,8 @@ import { AiService } from './ai.service';
   imports: [TicketsModule, DashboardsModule, GeminiModule],
   controllers: [AiController],
   providers: [AiService],
+  // Exported so IntakeModule can call classifyDepartment() directly, rather
+  // than duplicating a second Gemini-backed classifier.
+  exports: [AiService],
 })
 export class AiModule {}

@@ -1,12 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { Priority, StaffRole } from '@ticket-platform/shared';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Priority, StaffRole, extractTicketNumber } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketsService } from '../tickets/tickets.service';
 import { DashboardsService } from '../dashboards/dashboards.service';
 import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { GeminiService } from './gemini.service';
+import { classifyByKeywords } from './department-keyword-classifier';
 
 type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
+type DepartmentClassification = { departmentId: string; reasoning: string };
 type LanguageCheckResult = { flagged: boolean; reason: string };
 type ChatTurn = { role: 'user' | 'assistant'; text: string };
 
@@ -37,12 +39,62 @@ type BulkAssistItem = {
 
 @Injectable()
 export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
   constructor(
     private prisma: PrismaService,
     private tickets: TicketsService,
     private dashboards: DashboardsService,
     private gemini: GeminiService,
   ) {}
+
+  // ── Department classification (intake) ──────────────────────────────
+  // Used by IntakeService when a query arrives with no human already
+  // choosing a department (public web form, inbound email) — unlike triage()
+  // below, which only picks a ticket type + priority WITHIN an
+  // already-chosen department. Same "suggest, never act" contract: the
+  // result only pre-fills IntakeQuery.suggestedDepartmentId, a human always
+  // confirms/overrides it at conversion time (see IntakeService.convert()).
+  // Zero-cost keyword pass first; only falls through to a Gemini/Groq call
+  // if nothing matched, and never throws — an AI outage just leaves the
+  // query unrouted for a human to file manually, same degrade-to-null shape
+  // as checkLanguage()/pickBestAgent().
+  async classifyDepartment(orgId: string, subject: string, description: string): Promise<DepartmentClassification | null> {
+    const active = await this.prisma.department.findMany({
+      where: { orgId, isActive: true },
+      select: { id: true, key: true, name: true },
+    });
+    if (active.length === 0) return null;
+
+    const keywordMatch = classifyByKeywords(subject, description, active);
+    if (keywordMatch) return keywordMatch;
+
+    try {
+      const prompt = `You are routing an incoming support query to the right department for an internal
+helpdesk. Given the subject and description below, pick the single best-matching department from the
+list. Be decisive — always pick exactly one department ID from the list, even if the match is imperfect.
+
+Departments available:
+${active.map((d) => `- id: "${d.id}", key: "${d.key}", name: "${d.name}"`).join('\n')}
+
+Subject: ${subject}
+Description: ${description}`;
+
+      const result = await this.gemini.generateJson<DepartmentClassification>(prompt, {
+        type: 'OBJECT',
+        properties: {
+          departmentId: { type: 'STRING', enum: active.map((d) => d.id) },
+          reasoning: { type: 'STRING' },
+        },
+        required: ['departmentId', 'reasoning'],
+      });
+      if (!active.some((d) => d.id === result.departmentId)) return null;
+      return result;
+    } catch (err) {
+      this.logger.warn(`Department classification skipped: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
 
   // ── Triage agent ─────────────────────────────────────────────────────
   // Human-in-the-loop: this only SUGGESTS a ticket type + priority for the
@@ -289,18 +341,6 @@ Assistant:`;
     return { reply: reply.trim() };
   }
 
-  // If the staff member mentioned a ticket by its display ID (e.g. "TECH-42",
-  // "ticket 42", "#42"), pull that ticket up in full regardless of whether
-  // it's one of their 10 most recent — that's the "ask about his ticket by
-  // ticket ID" case, which the old recent-10-only context couldn't answer
-  // once a ticket aged out of the list.
-  private extractTicketNumber(message: string): number | null {
-    const dashMatch = message.match(/\b[A-Za-z]{2,15}-(\d{1,9})\b/);
-    if (dashMatch) return Number(dashMatch[1]);
-    const wordMatch = message.match(/\bticket\s*#?\s*(\d{1,9})\b/i) ?? message.match(/#(\d{1,9})\b/);
-    return wordMatch ? Number(wordMatch[1]) : null;
-  }
-
   private describeTicketForChat(ticket: NonNullable<Awaited<ReturnType<TicketsService['findByTicketNumberForChat']>>>): string {
     const statusSchema = ticket.ticketTypeVersion.statusSchemaSnapshot as unknown as { statuses: { key: string; label: string }[] };
     const statusLabel = statusSchema.statuses.find((s) => s.key === ticket.statusKey)?.label ?? ticket.statusKey;
@@ -318,7 +358,7 @@ Assistant:`;
   private async buildChatContext(staff: StaffJwtPayload, message: string): Promise<string> {
     const parts: string[] = [];
 
-    const ticketNumber = this.extractTicketNumber(message);
+    const ticketNumber = extractTicketNumber(message);
     if (ticketNumber !== null) {
       const ticket = await this.tickets.findByTicketNumberForChat(staff, ticketNumber);
       parts.push(

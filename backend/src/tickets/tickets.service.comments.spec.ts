@@ -15,7 +15,20 @@ function makeHarness(ticketOverrides: Partial<any> = {}, existingComments: any[]
   const commentCreateCalls: any[] = [];
   const commentFindManyCalls: any[] = [];
   const ticketUpdateCalls: any[] = [];
-  const ticket = { id: 'ticket-1', departmentId: 'dept-tech', customerId: 'cust-emp1', firstRespondedAt: null, ...ticketOverrides };
+  const ticket = {
+    id: 'ticket-1',
+    departmentId: 'dept-tech',
+    customerId: 'cust-emp1',
+    firstRespondedAt: null,
+    subject: 'Test ticket',
+    ticketNumber: 1,
+    department: { key: 'TECH', name: 'Tech' },
+    customer: { id: 'cust-emp1', name: 'Sample Employee', email: 'emp1@codevidhya.com', companyId: null },
+    company: null,
+    assignedAgent: null,
+    ticketTypeDefinition: { id: 'tt-1', name: 'General' },
+    ...ticketOverrides,
+  };
   const prisma = {
     ticket: {
       findUnique: jest.fn().mockResolvedValue(ticket),
@@ -47,10 +60,10 @@ function makeHarness(ticketOverrides: Partial<any> = {}, existingComments: any[]
       ),
     },
   };
-  const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn() };
+  const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn(), notifyRequester: jest.fn() };
   const gemini = { generateJson: jest.fn(), generateText: jest.fn() };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, gemini as any, {} as any);
-  return { service, prisma, commentCreateCalls, commentFindManyCalls, ticketUpdateCalls };
+  return { service, prisma, notifications, commentCreateCalls, commentFindManyCalls, ticketUpdateCalls };
 }
 
 describe('TicketsService — staff comments (assign/escalate style access)', () => {
@@ -82,6 +95,23 @@ describe('TicketsService — staff comments (assign/escalate style access)', () 
     const { service, ticketUpdateCalls } = makeHarness({ firstRespondedAt: null });
     await service.addComment(AGENT_TECH, 'ticket-1', { body: 'internal only', visibility: 'INTERNAL' } as any);
     expect(ticketUpdateCalls).toHaveLength(0);
+  });
+
+  it('notifies the requester by email on a PUBLIC reply', async () => {
+    const { service, notifications } = makeHarness();
+    await service.addComment(AGENT_TECH, 'ticket-1', { body: 'we are looking into it', visibility: 'PUBLIC' } as any);
+    expect(notifications.notifyRequester).toHaveBeenCalledWith(
+      'emp1@codevidhya.com',
+      'TICKET_COMMENT_ADDED',
+      expect.objectContaining({ ticketId: 'ticket-1', displayId: 'TECH-1' }),
+      expect.objectContaining({ subject: expect.stringContaining('TECH-1') }),
+    );
+  });
+
+  it('does not notify the requester for an INTERNAL note', async () => {
+    const { service, notifications } = makeHarness();
+    await service.addComment(AGENT_TECH, 'ticket-1', { body: 'internal only', visibility: 'INTERNAL' } as any);
+    expect(notifications.notifyRequester).not.toHaveBeenCalled();
   });
 
   it('listComments returns every visibility (staff sees INTERNAL + PUBLIC)', async () => {

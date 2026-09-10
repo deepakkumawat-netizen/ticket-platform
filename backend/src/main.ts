@@ -15,7 +15,14 @@ import { AppModule } from './app.module';
 dns.setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true attaches the exact request bytes as req.rawBody alongside
+  // Nest's normal JSON parsing — needed only by
+  // IntakeWebhooksController.inboundEmail, which must verify Resend's Svix
+  // signature against the EXACT bytes it signed (a parsed-then-re-serialized
+  // JSON body isn't guaranteed to match byte-for-byte). Every other route's
+  // behavior is unaffected — this only adds a field, it doesn't change how
+  // the body is parsed anywhere else.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   // Default helmet CSP is script-src/frame-src 'self' only — that silently
   // blocked Google's reCAPTCHA script (auth/recaptcha.service.ts) from ever
   // loading, no console error a typical user would notice, just a missing

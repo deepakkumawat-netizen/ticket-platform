@@ -1,6 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { PrincipalType, StaffRole } from '@ticket-platform/shared';
-import { assertDepartmentAccess, customerScopeWhere, departmentScopeWhere } from './scope';
+import { assertDepartmentAccess, customerScopeWhere, departmentScopeWhere, intakeQueryScopeWhere } from './scope';
 import { StaffJwtPayload, CustomerJwtPayload } from '../auth/jwt-payload.interface';
 
 // These are the exact functions every ticket/comment/attachment query must
@@ -67,5 +67,15 @@ describe('customerScopeWhere', () => {
       orgId: 'org-1',
     };
     expect(customerScopeWhere(b2cCustomer)).toEqual({ customerId: 'cust-2' });
+  });
+});
+
+describe('intakeQueryScopeWhere', () => {
+  it('lets SUPER_ADMIN see every intake query (no filter)', () => {
+    expect(intakeQueryScopeWhere(superAdmin)).toEqual({});
+  });
+
+  it('scopes a non-super-admin staff member to queries suggested for their own department', () => {
+    expect(intakeQueryScopeWhere(techAgent)).toEqual({ suggestedDepartmentId: 'dept-tech' });
   });
 });
