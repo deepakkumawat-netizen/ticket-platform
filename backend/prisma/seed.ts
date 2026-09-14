@@ -1,4 +1,4 @@
-// Seeds a minimal, real dev fixture: one Organization, all 4 departments
+// Seeds a minimal, real dev fixture: one Organization, all departments
 // (inactive until each is onboarded per the phased roadmap), and one
 // SUPER_ADMIN staff account so `/auth/staff/login` is testable end-to-end.
 // Run with: npm run prisma:seed --workspace backend
@@ -77,6 +77,35 @@ async function main() {
   await seedStaffMember(org.id, hrDept.id, 'hr-agent@codevidhya.com', 'HR Agent', StaffRole.AGENT);
   await seedStaffMember(org.id, hrDept.id, 'hr-manager@codevidhya.com', 'HR Manager', StaffRole.DEPT_ADMIN);
   await seedReadyToUseDepartmentSetup(hrDept.id, superAdmin.id, 'hr-request', 'HR Request');
+
+  // Operations, Sales, Content (2026-09-14): the product plan lists all 5
+  // department queues as a Branch-1 deliverable, but only TECH/HR had ever
+  // gotten this treatment — the other 3 existed only as an inactive enum
+  // value + a one-click "activate" admin action with nobody behind it, so a
+  // ticket routed there today would have zero agents to assign to. Same
+  // treatment as TECH/HR: one seeded agent + manager + a published
+  // catch-all ticket type, so all 5 queues in the plan are actually usable
+  // out of the box, not just theoretically activatable.
+  const opsDept = await prisma.department.findUniqueOrThrow({
+    where: { orgId_key: { orgId: org.id, key: DepartmentKey.OPERATIONS } },
+  });
+  await seedStaffMember(org.id, opsDept.id, 'ops-agent@codevidhya.com', 'Operations Agent', StaffRole.AGENT);
+  await seedStaffMember(org.id, opsDept.id, 'ops-manager@codevidhya.com', 'Operations Manager', StaffRole.DEPT_ADMIN);
+  await seedReadyToUseDepartmentSetup(opsDept.id, superAdmin.id, 'operations-request', 'Operations Request');
+
+  const salesDept = await prisma.department.findUniqueOrThrow({
+    where: { orgId_key: { orgId: org.id, key: DepartmentKey.SALES } },
+  });
+  await seedStaffMember(org.id, salesDept.id, 'sales-agent@codevidhya.com', 'Sales Agent', StaffRole.AGENT);
+  await seedStaffMember(org.id, salesDept.id, 'sales-manager@codevidhya.com', 'Sales Manager', StaffRole.DEPT_ADMIN);
+  await seedReadyToUseDepartmentSetup(salesDept.id, superAdmin.id, 'sales-request', 'Sales Request');
+
+  const contentDept = await prisma.department.findUniqueOrThrow({
+    where: { orgId_key: { orgId: org.id, key: DepartmentKey.CONTENT } },
+  });
+  await seedStaffMember(org.id, contentDept.id, 'content-agent@codevidhya.com', 'Content Agent', StaffRole.AGENT);
+  await seedStaffMember(org.id, contentDept.id, 'content-manager@codevidhya.com', 'Content Manager', StaffRole.DEPT_ADMIN);
+  await seedReadyToUseDepartmentSetup(contentDept.id, superAdmin.id, 'content-request', 'Content Request');
 }
 
 async function seedStaffMember(orgId: string, departmentId: string | null, email: string, name: string, role: StaffRole) {
