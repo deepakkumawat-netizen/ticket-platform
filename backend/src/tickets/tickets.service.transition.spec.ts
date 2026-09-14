@@ -51,7 +51,11 @@ function makeHarness(ticketOverrides: Partial<any> = {}) {
       }),
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
-  };
+  } as any;
+  // transition() runs its update + audit-log write inside
+  // $transaction(tx => ...) — hand the callback this same mocked prisma
+  // object as `tx` so every mock above still exercises exactly as before.
+  prisma.$transaction = jest.fn().mockImplementation((cb: (tx: any) => unknown) => cb(prisma));
   const notifications = { notifyRequester: jest.fn().mockResolvedValue(undefined) };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, {} as any, {} as any);
   return { service, prisma, notifications, updateCalls, auditLogCalls };
@@ -140,5 +144,16 @@ describe('TicketsService.transition', () => {
       throw new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: 'x' });
     });
     await expect(service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  // 2026-09-14 hardening pass: the update + its audit-log entry commit as
+  // one transaction, but notifyRequester runs AFTER that transaction and is
+  // best-effort (safeNotify) — a failed notification must never turn an
+  // already-committed status move into a 500 for the caller.
+  it('still returns the updated ticket even if notifying the requester fails', async () => {
+    const { service, notifications } = makeHarness();
+    notifications.notifyRequester.mockRejectedValueOnce(new Error('SMTP down'));
+    const updated = await service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED');
+    expect(updated.statusKey).toBe('RESOLVED');
   });
 });

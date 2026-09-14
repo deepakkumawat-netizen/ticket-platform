@@ -62,7 +62,12 @@ function makeService(ticket: any, opts: { agentDepartmentId?: string } = {}) {
       }),
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
-  };
+  } as any;
+  // assign()/escalate() run their update + audit-log writes inside
+  // $transaction(tx => ...) — this mock just hands the callback the same
+  // mocked prisma object as `tx`, so every ticket.update/auditLog.create
+  // call above is exercised exactly as before, just one level deeper.
+  prisma.$transaction = jest.fn().mockImplementation((cb: (tx: any) => unknown) => cb(prisma));
   const notifications = { notifyDepartmentManagers, markReadForTicket, notifyRequester, notify };
   // Not exercised by these tests (create()/auto-assign has its own spec) —
   // just needs to exist so the constructor call type-checks.
@@ -180,6 +185,18 @@ describe('TicketsService.assign — tracking history / requester email', () => {
     await service.assign(STAFF, 'ticket-1', 'agent-a');
     expect(auditLogCalls.some((c: any) => c.action === 'TICKET_ASSIGNED')).toBe(false);
     expect(notifyRequester).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-14 hardening pass: the ticket update + its audit-log entry
+  // commit as one transaction, but notifyRequester/notifyAgentAssigned run
+  // AFTER that transaction and are best-effort (safeNotify) — a failed
+  // notification must never turn an already-committed reassignment into a
+  // 500 for the caller.
+  it('still returns the updated ticket even if notifying the requester fails', async () => {
+    const { service, notifyRequester } = makeService(makeTicket({ assignedAgentId: null }));
+    notifyRequester.mockRejectedValueOnce(new Error('SMTP down'));
+    const updated = await service.assign(STAFF, 'ticket-1', 'agent-b');
+    expect(updated.assignedAgentId).toBe('agent-b');
   });
 });
 

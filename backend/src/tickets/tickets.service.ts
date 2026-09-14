@@ -184,57 +184,71 @@ export class TicketsService {
       }
     }
 
-    const ticket = await this.prisma.ticket.create({
-      data: {
-        orgId: staff.orgId,
-        departmentId,
-        ticketTypeDefinitionId: dto.ticketTypeDefinitionId,
-        ticketTypeVersionId: version.id,
-        customerType,
-        companyId: customer.companyId,
-        customerId: customer.id,
-        assignedAgentId,
-        priority: dto.priority,
-        statusKey: initialStatus.key,
-        subject: dto.subject,
-        description: dto.description,
-        customFields: parsedFields.data as Prisma.InputJsonValue,
-        responseDueAt,
-        resolutionDueAt,
-      },
-      include: TICKET_INCLUDE,
-    });
-
-    // First entry on the ticket's tracking timeline (2026-08-25's full-
-    // tracking addition) — unconditional, every ticket gets one.
-    await this.prisma.auditLog.create({
-      data: {
-        orgId: staff.orgId,
-        actorType: 'STAFF',
-        actorUserId: staff.sub,
-        action: 'TICKET_CREATED',
-        entityType: 'Ticket',
-        entityId: ticket.id,
-        afterJson: { subject: dto.subject, priority: dto.priority, statusKey: initialStatus.key },
-      },
-    });
-
-    if (autoAssignReasoning) {
-      await this.prisma.auditLog.create({
+    // The ticket row and its audit-trail entries are one atomic unit — a
+    // ticket that exists with no TICKET_CREATED entry would break the
+    // "delivery tracker" timeline the rest of the app assumes is always
+    // populated (see history endpoints). Wrapped in $transaction so a
+    // failure partway through (e.g. the audit-log insert) rolls the ticket
+    // creation back too, instead of leaving a half-written mutation that
+    // the caller can't tell succeeded or not. Notifications are
+    // deliberately OUTSIDE this transaction (see notifyAgentAssigned below)
+    // — an email send can't be rolled back, and a slow/failed send must
+    // never undo a ticket that's already real.
+    const ticket = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.ticket.create({
         data: {
           orgId: staff.orgId,
-          actorType: 'SYSTEM',
-          action: 'TICKET_AUTO_ASSIGNED',
+          departmentId,
+          ticketTypeDefinitionId: dto.ticketTypeDefinitionId,
+          ticketTypeVersionId: version.id,
+          customerType,
+          companyId: customer.companyId,
+          customerId: customer.id,
+          assignedAgentId,
+          priority: dto.priority,
+          statusKey: initialStatus.key,
+          subject: dto.subject,
+          description: dto.description,
+          customFields: parsedFields.data as Prisma.InputJsonValue,
+          responseDueAt,
+          resolutionDueAt,
+        },
+        include: TICKET_INCLUDE,
+      });
+
+      // First entry on the ticket's tracking timeline (2026-08-25's full-
+      // tracking addition) — unconditional, every ticket gets one.
+      await tx.auditLog.create({
+        data: {
+          orgId: staff.orgId,
+          actorType: 'STAFF',
+          actorUserId: staff.sub,
+          action: 'TICKET_CREATED',
           entityType: 'Ticket',
-          entityId: ticket.id,
-          afterJson: { agentId: assignedAgentId, reasoning: autoAssignReasoning },
+          entityId: created.id,
+          afterJson: { subject: dto.subject, priority: dto.priority, statusKey: initialStatus.key },
         },
       });
-    }
+
+      if (autoAssignReasoning) {
+        await tx.auditLog.create({
+          data: {
+            orgId: staff.orgId,
+            actorType: 'SYSTEM',
+            action: 'TICKET_AUTO_ASSIGNED',
+            entityType: 'Ticket',
+            entityId: created.id,
+            afterJson: { agentId: assignedAgentId, reasoning: autoAssignReasoning },
+          },
+        });
+      }
+
+      return created;
+    });
 
     if (assignedAgentId) {
       const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
-      await this.notifyAgentAssigned(ticket.id, assignedAgentId, dto.subject, displayId);
+      await this.safeNotify(() => this.notifyAgentAssigned(ticket.id, assignedAgentId!, dto.subject, displayId));
     }
 
     // Not a persisted Ticket field — a one-time explanation for the create
@@ -252,6 +266,21 @@ export class TicketsService {
    * fresh rather than widening the shared TICKET_INCLUDE select just for
    * this, and no-ops quietly if the agent can't be found — a missing
    * notification must never block the ticket action that triggered it. */
+  // The comments on notifyAgentAssigned/notifyRequester/notifyEscalation
+  // already claimed "must never block the ticket action" — this is what
+  // actually enforces that. Without it, a real mailer failure (SMTP down,
+  // Resend rate-limited, ...) would throw straight out of create()/assign()/
+  // transition() as a raw 500, even though the ticket mutation itself
+  // already committed successfully — the caller has no way to tell the
+  // action worked, and might retry a ticket move that already happened.
+  private async safeNotify(action: () => Promise<unknown>) {
+    try {
+      await action();
+    } catch (err) {
+      this.logger.warn(`A notification failed after its ticket mutation already committed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async notifyAgentAssigned(ticketId: string, agentId: string, subject: string, displayId: string) {
     const agent = await this.prisma.user.findUnique({ where: { id: agentId }, select: { id: true, email: true } });
     if (!agent) return;
@@ -731,10 +760,48 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     // rowVersion here, two agents reassigning the same ticket at nearly the
     // same moment can race: the second write silently overwrites the first
     // (including its reassignmentCount bump), instead of the second caller
-    // getting a clean "reload and try again".
+    // getting a clean "reload and try again". The update + its audit-log
+    // entries are one atomic unit (see create()'s comment for why) —
+    // notifications are deliberately outside it, best-effort via safeNotify.
     let updated;
     try {
-      updated = await this.prisma.ticket.update({ where: { id, rowVersion: ticket.rowVersion }, data, include: TICKET_DETAIL_INCLUDE });
+      updated = await this.prisma.$transaction(async (tx) => {
+        const upd = await tx.ticket.update({ where: { id, rowVersion: ticket.rowVersion }, data, include: TICKET_DETAIL_INCLUDE });
+
+        if (willAutoEscalate) {
+          await tx.auditLog.create({
+            data: {
+              orgId: staff.orgId,
+              actorType: 'SYSTEM',
+              action: 'TICKET_ESCALATED',
+              entityType: 'Ticket',
+              entityId: id,
+              afterJson: { reason: EscalationReason.REASSIGNMENT_THRESHOLD, reassignmentCount: upd.reassignmentCount },
+            },
+          });
+        }
+
+        // Full tracking (Deepak's ask, 2026-08-25): every assignment change
+        // gets logged for the timeline. Only when a real agent actually
+        // changed (not on plain unassign, and not a no-op re-save of the
+        // same agent).
+        if (ticket.assignedAgentId !== upd.assignedAgentId) {
+          await tx.auditLog.create({
+            data: {
+              orgId: staff.orgId,
+              actorType: 'STAFF',
+              actorUserId: staff.sub,
+              action: 'TICKET_ASSIGNED',
+              entityType: 'Ticket',
+              entityId: id,
+              beforeJson: { agentId: ticket.assignedAgentId },
+              afterJson: { agentId: upd.assignedAgentId, agentName: upd.assignedAgent?.name ?? null },
+            },
+          });
+        }
+
+        return upd;
+      });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
         throw new ConflictException('This ticket was modified by someone else — reload and try again');
@@ -743,50 +810,25 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     }
 
     if (willAutoEscalate) {
-      await this.prisma.auditLog.create({
-        data: {
-          orgId: staff.orgId,
-          actorType: 'SYSTEM',
-          action: 'TICKET_ESCALATED',
-          entityType: 'Ticket',
-          entityId: id,
-          afterJson: { reason: EscalationReason.REASSIGNMENT_THRESHOLD, reassignmentCount: updated.reassignmentCount },
-        },
-      });
-      await this.notifyEscalation(staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD);
+      await this.safeNotify(() => this.notifyEscalation(staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD));
     }
 
-    // Full tracking (Deepak's ask, 2026-08-25): every assignment change gets
-    // logged for the timeline AND emails the requester who's now on it —
-    // same "delivery tracker" spirit as the resolution email, just for the
-    // "assigned to an agent" step. Only when a real agent actually changed
-    // (not on plain unassign, and not a no-op re-save of the same agent).
-    if (ticket.assignedAgentId !== updated.assignedAgentId) {
-      await this.prisma.auditLog.create({
-        data: {
-          orgId: staff.orgId,
-          actorType: 'STAFF',
-          actorUserId: staff.sub,
-          action: 'TICKET_ASSIGNED',
-          entityType: 'Ticket',
-          entityId: id,
-          beforeJson: { agentId: ticket.assignedAgentId },
-          afterJson: { agentId: updated.assignedAgentId, agentName: updated.assignedAgent?.name ?? null },
-        },
-      });
-      if (updated.assignedAgentId && updated.assignedAgent) {
-        const displayId = `${updated.department.key}-${updated.ticketNumber}`;
-        await this.notifications.notifyRequester(
+    // Emails the requester who's now on it — same "delivery tracker" spirit
+    // as the resolution email, just for the "assigned to an agent" step.
+    if (ticket.assignedAgentId !== updated.assignedAgentId && updated.assignedAgentId && updated.assignedAgent) {
+      const displayId = `${updated.department.key}-${updated.ticketNumber}`;
+      await this.safeNotify(() =>
+        this.notifications.notifyRequester(
           updated.customer.email,
           'TICKET_ASSIGNED',
-          { ticketId: updated.id, displayId, subject: updated.subject, agentName: updated.assignedAgent.name },
+          { ticketId: updated.id, displayId, subject: updated.subject, agentName: updated.assignedAgent!.name },
           {
-            subject: `[${displayId}] Assigned to ${updated.assignedAgent.name}`,
-            body: `Your ticket "${updated.subject}" is now being worked on by ${updated.assignedAgent.name}.`,
+            subject: `[${displayId}] Assigned to ${updated.assignedAgent!.name}`,
+            body: `Your ticket "${updated.subject}" is now being worked on by ${updated.assignedAgent!.name}.`,
           },
-        );
-        await this.notifyAgentAssigned(updated.id, updated.assignedAgentId, updated.subject, displayId);
-      }
+        ),
+      );
+      await this.safeNotify(() => this.notifyAgentAssigned(updated.id, updated.assignedAgentId!, updated.subject, displayId));
     }
 
     return updated;
@@ -805,24 +847,26 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     this.assertStaffCanAccessTicket(staff, ticket.departmentId);
     if (ticket.isEscalated) return ticket; // idempotent — already flagged, nothing to do
 
-    const updated = await this.prisma.ticket.update({
-      where: { id },
-      data: { isEscalated: true, escalatedAt: new Date(), escalationReason: EscalationReason.MANUAL },
-      include: TICKET_DETAIL_INCLUDE,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const upd = await tx.ticket.update({
+        where: { id },
+        data: { isEscalated: true, escalatedAt: new Date(), escalationReason: EscalationReason.MANUAL },
+        include: TICKET_DETAIL_INCLUDE,
+      });
+      await tx.auditLog.create({
+        data: {
+          orgId: staff.orgId,
+          actorType: 'STAFF',
+          actorUserId: staff.sub,
+          action: 'TICKET_ESCALATED',
+          entityType: 'Ticket',
+          entityId: id,
+          afterJson: { reason: EscalationReason.MANUAL, note: note ?? null },
+        },
+      });
+      return upd;
     });
-
-    await this.prisma.auditLog.create({
-      data: {
-        orgId: staff.orgId,
-        actorType: 'STAFF',
-        actorUserId: staff.sub,
-        action: 'TICKET_ESCALATED',
-        entityType: 'Ticket',
-        entityId: id,
-        afterJson: { reason: EscalationReason.MANUAL, note: note ?? null },
-      },
-    });
-    await this.notifyEscalation(staff.orgId, updated, EscalationReason.MANUAL);
+    await this.safeNotify(() => this.notifyEscalation(staff.orgId, updated, EscalationReason.MANUAL));
 
     return updated;
   }
@@ -1001,12 +1045,36 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       data.closedAt = now;
     }
 
+    const toLabel = toStatusDef?.label ?? toStatusKey;
+
+    // Update + its audit-log entry are one atomic unit (see create()'s
+    // comment for why) — the notification below is deliberately outside it.
     let updated;
     try {
-      updated = await this.prisma.ticket.update({
-        where: { id, rowVersion: ticket.rowVersion },
-        data: { ...data, rowVersion: { increment: 1 } },
-        include: TICKET_DETAIL_INCLUDE,
+      updated = await this.prisma.$transaction(async (tx) => {
+        const upd = await tx.ticket.update({
+          where: { id, rowVersion: ticket.rowVersion },
+          data: { ...data, rowVersion: { increment: 1 } },
+          include: TICKET_DETAIL_INCLUDE,
+        });
+
+        // Full tracking (Deepak's ask, 2026-08-25): every status move is a
+        // step on the timeline, not just resolution — same "delivery
+        // tracker" shape as the assignment step above.
+        await tx.auditLog.create({
+          data: {
+            orgId: staff.orgId,
+            actorType: 'STAFF',
+            actorUserId: staff.sub,
+            action: 'TICKET_STATUS_CHANGED',
+            entityType: 'Ticket',
+            entityId: id,
+            beforeJson: { statusKey: ticket.statusKey },
+            afterJson: { statusKey: toStatusKey, label: toLabel },
+          },
+        });
+
+        return upd;
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
@@ -1016,41 +1084,26 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     }
 
     const displayId = `${updated.department.key}-${updated.ticketNumber}`;
-    const toLabel = toStatusDef?.label ?? toStatusKey;
-
-    // Full tracking (Deepak's ask, 2026-08-25): every status move is a step
-    // on the timeline, not just resolution — same "delivery tracker" shape
-    // as the assignment step above.
-    await this.prisma.auditLog.create({
-      data: {
-        orgId: staff.orgId,
-        actorType: 'STAFF',
-        actorUserId: staff.sub,
-        action: 'TICKET_STATUS_CHANGED',
-        entityType: 'Ticket',
-        entityId: id,
-        beforeJson: { statusKey: ticket.statusKey },
-        afterJson: { statusKey: toStatusKey, label: toLabel },
-      },
-    });
 
     // And once email is connected, the requester should actually hear about
     // it, not just see it update in an app they may not be checking.
     // Best-effort — see MailerService: a broken/unset SMTP config just logs
     // and skips, it never fails the transition itself.
-    await this.notifications.notifyRequester(
-      updated.customer.email,
-      isFirstResolution ? 'TICKET_RESOLVED' : 'TICKET_STATUS_CHANGED',
-      { ticketId: updated.id, displayId, subject: updated.subject, statusKey: toStatusKey, statusLabel: toLabel },
-      isFirstResolution
-        ? {
-            subject: `[${displayId}] Resolved — ${updated.subject}`,
-            body: `Your ticket "${updated.subject}" has been marked "${toLabel}".\n\nIf this doesn't look right, reply on the ticket in the Ticket Platform and it'll get looked at again.`,
-          }
-        : {
-            subject: `[${displayId}] Now "${toLabel}" — ${updated.subject}`,
-            body: `Your ticket "${updated.subject}" moved to "${toLabel}".`,
-          },
+    await this.safeNotify(() =>
+      this.notifications.notifyRequester(
+        updated.customer.email,
+        isFirstResolution ? 'TICKET_RESOLVED' : 'TICKET_STATUS_CHANGED',
+        { ticketId: updated.id, displayId, subject: updated.subject, statusKey: toStatusKey, statusLabel: toLabel },
+        isFirstResolution
+          ? {
+              subject: `[${displayId}] Resolved — ${updated.subject}`,
+              body: `Your ticket "${updated.subject}" has been marked "${toLabel}".\n\nIf this doesn't look right, reply on the ticket in the Ticket Platform and it'll get looked at again.`,
+            }
+          : {
+              subject: `[${displayId}] Now "${toLabel}" — ${updated.subject}`,
+              body: `Your ticket "${updated.subject}" moved to "${toLabel}".`,
+            },
+      ),
     );
 
     return updated;

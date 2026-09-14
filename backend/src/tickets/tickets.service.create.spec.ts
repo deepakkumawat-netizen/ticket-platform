@@ -42,7 +42,11 @@ function makeCreateHarness(candidates: { id: string; name: string }[], geminiImp
       }),
     },
     auditLog: { create: jest.fn().mockImplementation(({ data }) => auditLogCalls.push(data)) },
-  };
+  } as any;
+  // create() runs its ticket.create + audit-log writes inside
+  // $transaction(tx => ...) — hand the callback this same mocked prisma
+  // object as `tx` so every mock above still exercises exactly as before.
+  prisma.$transaction = jest.fn().mockImplementation((cb: (tx: any) => unknown) => cb(prisma));
   const ticketTypes = { getLatestPublishedVersion: jest.fn().mockResolvedValue(VERSION) };
   const notify = jest.fn().mockResolvedValue(undefined);
   const notifications = { notifyDepartmentManagers: jest.fn(), markReadForTicket: jest.fn(), notify };
@@ -136,6 +140,19 @@ describe('TicketsService.create — agent notification', () => {
     const { service, notify } = makeCreateHarness([]);
     await service.create(STAFF, 'dept-tech', BASE_DTO as any);
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-14 hardening pass: the ticket row + its audit-log entries commit
+  // as one transaction, but the agent-assigned notification runs AFTER that
+  // transaction and is best-effort (safeNotify) — a mailer/notification
+  // failure must never turn an already-successful ticket creation into a 500
+  // for the caller.
+  it('still returns the created ticket even if notifying the assigned agent fails', async () => {
+    const { service, prisma, notify } = makeCreateHarness([{ id: 'agent-1', name: 'Alex' }]);
+    prisma.user.findUnique.mockResolvedValue({ id: 'agent-1', email: 'alex@codevidhya.com' });
+    notify.mockRejectedValueOnce(new Error('SMTP down'));
+    const ticket = await service.create(STAFF, 'dept-tech', BASE_DTO as any);
+    expect(ticket.id).toBe('ticket-new');
   });
 });
 
