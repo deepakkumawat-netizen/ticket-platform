@@ -8,11 +8,13 @@ export function PortalLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setSubmitting(true);
     try {
       const captchaToken = await getRecaptchaToken('portal_login');
       const { accessToken } = await api.portalLogin(email, password, captchaToken);
@@ -20,6 +22,8 @@ export function PortalLoginPage() {
       navigate('/portal');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -36,7 +40,9 @@ export function PortalLoginPage() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="off" />
         </label>
         {error && <p className="error">{error}</p>}
-        <button type="submit">Sign in</button>
+        <button type="submit" disabled={submitting}>
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </button>
       </form>
       <RecaptchaDisclosure />
     </div>

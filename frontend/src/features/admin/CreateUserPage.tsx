@@ -20,7 +20,11 @@ export function CreateUserPage() {
   const [created, setCreated] = useState<{ name: string; email: string; temporaryPassword: string } | null>(null);
 
   useEffect(() => {
-    api.listDepartments(token).then(setDepartments).catch(() => {});
+    // A silent failure here previously left the Department <select required>
+    // (shown for DEPT_ADMIN/AGENT roles) permanently empty with no
+    // explanation — a SUPER_ADMIN could never submit the form for those
+    // roles and had no idea why.
+    api.listDepartments(token).then(setDepartments).catch((err) => setError(err instanceof Error ? err.message : 'Could not load departments'));
   }, [token]);
 
   async function onSubmit(e: FormEvent) {

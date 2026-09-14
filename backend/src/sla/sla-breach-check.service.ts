@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { EscalationReason, EscalationRuleEntry, resolveEscalationRule } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { notifyEscalation } from '../notifications/escalation-notify';
 
 type StatusSchemaSnapshot = { statuses: { key: string; isTerminal: boolean }[] };
 
@@ -78,17 +79,10 @@ export class SlaBreachCheckService {
         },
       });
 
-      const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
-      await this.notifications.notifyDepartmentManagers(
-        ticket.orgId,
-        ticket.departmentId,
-        'TICKET_ESCALATED',
-        { ticketId: ticket.id, displayId, subject: ticket.subject, reason: EscalationReason.SLA_BREACH },
-        {
-          subject: `[${displayId}] Escalated — SLA breached`,
-          body: `Ticket ${displayId} ("${ticket.subject}") missed its SLA deadline and has been escalated. Please review it in the Ticket Platform.`,
-        },
-      );
+      // Shared with tickets.service.ts's manual/reassignment-threshold
+      // triggers (see notifications/escalation-notify.ts) — this used to be
+      // a hand-rolled copy with its own slightly different wording.
+      await notifyEscalation(this.notifications, ticket.orgId, ticket, EscalationReason.SLA_BREACH);
       escalatedCount += 1;
     }
 

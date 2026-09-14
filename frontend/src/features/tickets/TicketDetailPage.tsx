@@ -18,6 +18,14 @@ export function TicketDetailPage() {
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Gates assign/transition/escalate/acknowledge/notify-manager/archive —
+  // none of these had a busy state before, unlike comment-post and
+  // attachment-upload just below. Without it, a double-click (or a slow
+  // network) could fire the same mutating call twice: two concurrent
+  // reassigns racing so a slower first response landing after a faster
+  // second one silently reverts the pick, or two "Notify manager" clicks
+  // sending the manager a duplicate email.
+  const [actionPending, setActionPending] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
   const [notifyMessage, setNotifyMessage] = useState<string | null>(null);
@@ -67,7 +75,7 @@ export function TicketDetailPage() {
     // that role: the "Assigned to" dropdown had only the Unassigned option
     // to show, so it displayed as unassigned even on a ticket that WAS
     // assigned (the real assignedAgent.id just had no matching <option>).
-    if (ticket?.departmentId) api.listDepartmentUsers(ticket.departmentId, token).then(setStaffMembers);
+    if (ticket?.departmentId) api.listDepartmentUsers(ticket.departmentId, token).then(setStaffMembers).catch(() => setStaffMembers([]));
   }, [ticket?.departmentId, token]);
 
   if (error) return <p className="error">{error}</p>;
@@ -82,78 +90,99 @@ export function TicketDetailPage() {
   );
 
   async function onAssign(agentId: string) {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
+    setActionPending(true);
     try {
       setTicket(await api.assignTicket(ticket.id, agentId || null, token));
       loadHistory(); // assignment is a new tracker step
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reassign this ticket');
+    } finally {
+      setActionPending(false);
     }
   }
 
   async function onTransition(toStatusKey: string) {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
+    setActionPending(true);
     try {
       setTicket(await api.transitionTicket(ticket.id, toStatusKey, token));
       loadHistory(); // status change is a new tracker step
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change status');
+    } finally {
+      setActionPending(false);
     }
   }
 
   async function onEscalate() {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
+    setActionPending(true);
     try {
       setTicket(await api.escalateTicket(ticket.id, undefined, token));
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not escalate this ticket');
+    } finally {
+      setActionPending(false);
     }
   }
 
   async function onAcknowledge() {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
+    setActionPending(true);
     try {
       setTicket(await api.acknowledgeEscalation(ticket.id, token));
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not acknowledge this escalation');
+    } finally {
+      setActionPending(false);
     }
   }
 
   // Reversible — a confirm() is enough friction for "hide, not delete."
   async function onArchive() {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
     if (!window.confirm('Archive this ticket? It will be hidden from the queue and dashboard, but can be unarchived anytime.')) return;
+    setActionPending(true);
     try {
       setTicket(await api.archiveTicket(ticket.id, token));
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not archive this ticket');
+    } finally {
+      setActionPending(false);
     }
   }
 
   async function onUnarchive() {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
+    setActionPending(true);
     try {
       setTicket(await api.unarchiveTicket(ticket.id, token));
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not unarchive this ticket');
+    } finally {
+      setActionPending(false);
     }
   }
 
   // Calm, non-urgent — unlike escalate, this never changes the ticket
   // itself, so there's nothing to setTicket() with; just confirm it sent.
   async function onNotifyManager() {
-    if (!ticket) return;
+    if (!ticket || actionPending) return;
     setNotifyMessage(null);
+    setActionPending(true);
     try {
       await api.notifyManager(ticket.id, undefined, token);
       setNotifyMessage('✅ Manager notified — no action needed from them, just keeping them posted.');
       loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not notify the manager');
+    } finally {
+      setActionPending(false);
     }
   }
 
@@ -237,11 +266,11 @@ export function TicketDetailPage() {
           <span className={`priority-chip priority-${ticket.priority.toLowerCase()}`}>{ticket.priority}</span>
           {(me?.role === 'DEPT_ADMIN' || me?.role === 'SUPER_ADMIN') &&
             (ticket.isArchived ? (
-              <button type="button" className="archive-button" onClick={onUnarchive}>
+              <button type="button" className="archive-button" onClick={onUnarchive} disabled={actionPending}>
                 Unarchive
               </button>
             ) : (
-              <button type="button" className="archive-button" onClick={onArchive}>
+              <button type="button" className="archive-button" onClick={onArchive} disabled={actionPending}>
                 Archive
               </button>
             ))}
@@ -269,7 +298,7 @@ export function TicketDetailPage() {
             {ticket.escalationAcknowledgedAt && ' — acknowledged'}
           </span>
           {!ticket.escalationAcknowledgedAt && (me?.role === 'DEPT_ADMIN' || me?.role === 'SUPER_ADMIN') && (
-            <button type="button" className="escalation-acknowledge" onClick={onAcknowledge}>
+            <button type="button" className="escalation-acknowledge" onClick={onAcknowledge} disabled={actionPending}>
               Acknowledge
             </button>
           )}
@@ -281,17 +310,17 @@ export function TicketDetailPage() {
         {availableMoves.map((m) => {
           const label = statuses.find((s) => s.key === m.toStatusKey)?.label ?? m.toStatusKey;
           return (
-            <button key={m.toStatusKey} className="status-move" onClick={() => onTransition(m.toStatusKey)}>
+            <button key={m.toStatusKey} className="status-move" onClick={() => onTransition(m.toStatusKey)} disabled={actionPending}>
               → {label}
             </button>
           );
         })}
         {!ticket.isEscalated && (
-          <button type="button" className="status-move escalate-button" onClick={onEscalate}>
+          <button type="button" className="status-move escalate-button" onClick={onEscalate} disabled={actionPending}>
             🚩 Escalate
           </button>
         )}
-        <button type="button" className="status-move notify-manager-button" onClick={onNotifyManager}>
+        <button type="button" className="status-move notify-manager-button" onClick={onNotifyManager} disabled={actionPending}>
           📣 Notify manager
         </button>
       </p>
@@ -299,7 +328,7 @@ export function TicketDetailPage() {
 
       <label className="inline-filter">
         Assigned to
-        <select value={ticket.assignedAgent?.id ?? ''} onChange={(e) => onAssign(e.target.value)}>
+        <select value={ticket.assignedAgent?.id ?? ''} onChange={(e) => onAssign(e.target.value)} disabled={actionPending}>
           <option value="">Unassigned</option>
           {staffMembers.map((s) => (
             <option key={s.id} value={s.id}>

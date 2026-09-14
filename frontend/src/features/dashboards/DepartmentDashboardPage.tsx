@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { api, staffToken, staffUser, DashboardData, Department } from '../../lib/api';
 
 function agingDisplayId(departmentKey: string, ticketNumber: number) {
@@ -19,6 +19,15 @@ export function DepartmentDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [insights, setInsights] = useState<string | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  // Tracks the LATEST departmentId synchronously (a state closure inside
+  // onGenerateInsights only ever sees the value from the render it was
+  // created in) — lets that async handler tell, once its request resolves,
+  // whether the viewer has since switched departments and discard a
+  // now-stale result instead of rendering Dept A's insight under Dept B.
+  const departmentIdRef = useRef(departmentId);
+  useEffect(() => {
+    departmentIdRef.current = departmentId;
+  }, [departmentId]);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -54,15 +63,22 @@ export function DepartmentDashboardPage() {
   // load would be slow and costly for a summary that doesn't change that fast.
   async function onGenerateInsights() {
     if (!departmentId) return;
+    const requestedFor = departmentId;
     setInsightsLoading(true);
     setError(null);
     try {
       const { summary } = await api.getDashboardInsights(departmentId, token);
+      // Discard a result for a department the viewer has since switched away
+      // from — the department-switch effect above already reset `insights`
+      // to null for the new department; applying this stale response now
+      // would silently overwrite that with the OLD department's summary.
+      if (departmentIdRef.current !== requestedFor) return;
       setInsights(summary);
     } catch (err) {
+      if (departmentIdRef.current !== requestedFor) return;
       setError(err instanceof Error ? err.message : 'Could not generate insights');
     } finally {
-      setInsightsLoading(false);
+      if (departmentIdRef.current === requestedFor) setInsightsLoading(false);
     }
   }
 

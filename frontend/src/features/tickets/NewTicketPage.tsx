@@ -118,7 +118,11 @@ export function NewTicketPage() {
       setStaffResults([]);
       return;
     }
-    setStaffResults(await api.searchStaff(q, token));
+    try {
+      setStaffResults(await api.searchStaff(q, token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not search your team');
+    }
   }
 
   async function onCreateExternalRequester(e: FormEvent) {

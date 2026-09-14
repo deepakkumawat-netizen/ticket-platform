@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketTypesService } from '../ticket-types/ticket-types.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { notifyEscalation } from '../notifications/escalation-notify';
 import { GeminiService } from '../ai/gemini.service';
 import { StorageService } from '../storage/storage.service';
 import { customerScopeWhere } from '../common/scope';
@@ -810,7 +811,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     }
 
     if (willAutoEscalate) {
-      await this.safeNotify(() => this.notifyEscalation(staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD));
+      await this.safeNotify(() => notifyEscalation(this.notifications, staff.orgId, updated, EscalationReason.REASSIGNMENT_THRESHOLD));
     }
 
     // Emails the requester who's now on it — same "delivery tracker" spirit
@@ -866,7 +867,7 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
       });
       return upd;
     });
-    await this.safeNotify(() => this.notifyEscalation(staff.orgId, updated, EscalationReason.MANUAL));
+    await this.safeNotify(() => notifyEscalation(this.notifications, staff.orgId, updated, EscalationReason.MANUAL));
 
     return updated;
   }
@@ -938,25 +939,6 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     );
 
     return { ok: true as const };
-  }
-
-  private async notifyEscalation(
-    orgId: string,
-    ticket: { id: string; departmentId: string; ticketNumber: number; subject: string; department: { key: string } },
-    reason: EscalationReason,
-  ) {
-    const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
-    const reasonLabel = reason.replace(/_/g, ' ').toLowerCase();
-    await this.notifications.notifyDepartmentManagers(
-      orgId,
-      ticket.departmentId,
-      'TICKET_ESCALATED',
-      { ticketId: ticket.id, displayId, subject: ticket.subject, reason },
-      {
-        subject: `[${displayId}] Escalated — ${reasonLabel}`,
-        body: `Ticket ${displayId} ("${ticket.subject}") has been escalated (${reasonLabel}). Please review it in the Ticket Platform.`,
-      },
-    );
   }
 
   // ── Archive (SUPER_ADMIN/DEPT_ADMIN only — see tickets.controller.ts) ──
