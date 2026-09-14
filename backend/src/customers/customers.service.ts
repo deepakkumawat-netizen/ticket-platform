@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from '../common/normalize-email';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 
 @Injectable()
@@ -39,7 +40,8 @@ export class CustomersService {
     // Customer.email is globally unique — without this check, a duplicate
     // surfaced as a raw Prisma P2002 (generic 500) instead of a clean,
     // actionable message. Same pre-check pattern as users.service.ts's create().
-    if (await this.prisma.customer.findUnique({ where: { email: dto.email } })) {
+    const email = normalizeEmail(dto.email);
+    if (await this.prisma.customer.findUnique({ where: { email } })) {
       throw new ConflictException('Someone with this email is already in the system — search for them above instead of adding again');
     }
 
@@ -48,7 +50,7 @@ export class CustomersService {
       data: {
         orgId,
         name: dto.name,
-        email: dto.email,
+        email,
         phone: dto.phone,
         companyId,
       },
@@ -73,11 +75,12 @@ export class CustomersService {
   // by a raw email/name from an unauthenticated submission instead of an
   // existing User row.
   async findOrCreateByEmail(orgId: string, name: string, email: string, phone?: string, companyName?: string) {
+    const normalizedEmail = normalizeEmail(email);
     const companyId = await this.resolveCompanyId(orgId, companyName);
     return this.prisma.customer.upsert({
-      where: { email },
+      where: { email: normalizedEmail },
       update: companyId ? { companyId } : {},
-      create: { orgId, name, email, phone, companyId },
+      create: { orgId, name, email: normalizedEmail, phone, companyId },
       include: { company: { select: { id: true, name: true } } },
     });
   }

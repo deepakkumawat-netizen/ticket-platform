@@ -66,15 +66,28 @@ export class DashboardsService {
     let responseBreached = 0;
     let resolutionBreached = 0;
     let noSlaRule = 0;
+    let anyBreach = 0;
     for (const t of openTickets) {
       if (!t.responseDueAt && !t.resolutionDueAt) {
         noSlaRule += 1;
         continue;
       }
-      if (!t.firstRespondedAt && t.responseDueAt && now > t.responseDueAt) responseBreached += 1;
-      if (!t.resolvedAt && t.resolutionDueAt && now > t.resolutionDueAt) resolutionBreached += 1;
+      const responseIsBreached = !t.firstRespondedAt && t.responseDueAt && now > t.responseDueAt;
+      const resolutionIsBreached = !t.resolvedAt && t.resolutionDueAt && now > t.resolutionDueAt;
+      if (responseIsBreached) responseBreached += 1;
+      if (resolutionIsBreached) resolutionBreached += 1;
+      // A ticket can breach BOTH its response and resolution SLA, or EITHER
+      // one independently of the other (disjoint sets) — responseBreached
+      // and resolutionBreached count tickets in each set separately (for the
+      // breakdown below), but "on track" needs a per-ticket breached/not
+      // count, not those two numbers combined. Math.max(a, b) previously
+      // used here undercounts whenever the two breach sets are disjoint
+      // (e.g. 5 response-only + 5 resolution-only breaches reported only 5
+      // total instead of 10), overstating onTrack on this and the CEO
+      // dashboard.
+      if (responseIsBreached || resolutionIsBreached) anyBreach += 1;
     }
-    const onTrack = openTickets.length - noSlaRule - Math.max(responseBreached, resolutionBreached);
+    const onTrack = openTickets.length - noSlaRule - anyBreach;
 
     // ── Agent workload ────────────────────────────────────────────────
     const workload = new Map<string, { agentId: string | null; agentName: string; openCount: number; totalCount: number }>();

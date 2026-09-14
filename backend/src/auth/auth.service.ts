@@ -4,8 +4,23 @@ import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { AuthMethod, PrincipalType, StaffRole } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from '../common/normalize-email';
 import { CustomerJwtPayload, StaffJwtPayload } from './jwt-payload.interface';
 import { SignupDto } from './dto/signup.dto';
+
+// Runs argon2 for roughly the same cost whether or not a real password hash
+// exists to check against, so response timing alone can't reveal whether an
+// email is registered (see validateStaff/validateCustomer). Hashing the
+// supplied password when there's nothing to verify it against costs about
+// the same as a real verify, without needing a precomputed dummy hash on
+// file that could go stale if argon2's default params ever change.
+async function verifyPasswordTimingSafe(passwordHash: string | null | undefined, password: string): Promise<boolean> {
+  if (!passwordHash) {
+    await argon2.hash(password);
+    return false;
+  }
+  return argon2.verify(passwordHash, password);
+}
 
 @Injectable()
 export class AuthService {
@@ -17,11 +32,12 @@ export class AuthService {
 
   async validateStaff(email: string, password: string) {
     const user = await this.prisma.user.findUnique({
-      where: { email },
+      where: { email: normalizeEmail(email) },
       include: { credentials: { where: { method: AuthMethod.LOCAL_PASSWORD } } },
     });
     const cred = user?.credentials[0];
-    if (!user || !user.isActive || !cred?.passwordHash || !(await argon2.verify(cred.passwordHash, password))) {
+    const passwordOk = await verifyPasswordTimingSafe(cred?.passwordHash, password);
+    if (!user || !user.isActive || !cred?.passwordHash || !passwordOk) {
       throw new UnauthorizedException('Invalid email or password');
     }
     return user;
@@ -45,17 +61,18 @@ export class AuthService {
       .split(',')
       .map((d) => d.trim().toLowerCase())
       .filter(Boolean);
-    const emailDomain = dto.email.split('@')[1]?.toLowerCase();
+    const email = normalizeEmail(dto.email);
+    const emailDomain = email.split('@')[1];
     if (!emailDomain || !allowedDomains.includes(emailDomain)) {
       throw new BadRequestException(`Please sign up with your work email (@${allowedDomains.join(', @')})`);
     }
 
-    if (await this.prisma.user.findUnique({ where: { email: dto.email } })) {
+    if (await this.prisma.user.findUnique({ where: { email } })) {
       throw new ConflictException('An account with this email already exists');
     }
     const org = await this.prisma.organization.findFirstOrThrow();
     const user = await this.prisma.user.create({
-      data: { orgId: org.id, email: dto.email, name: dto.name, role: StaffRole.EMPLOYEE, departmentId: null },
+      data: { orgId: org.id, email, name: dto.name, role: StaffRole.EMPLOYEE, departmentId: null },
     });
     await this.prisma.authCredential.create({
       data: { userId: user.id, method: AuthMethod.LOCAL_PASSWORD, passwordHash: await argon2.hash(dto.password) },
@@ -76,16 +93,12 @@ export class AuthService {
 
   async validateCustomer(email: string, password: string) {
     const customer = await this.prisma.customer.findUnique({
-      where: { email },
+      where: { email: normalizeEmail(email) },
       include: { credentials: { where: { method: AuthMethod.LOCAL_PASSWORD } } },
     });
     const cred = customer?.credentials[0];
-    if (
-      !customer ||
-      !customer.isActive ||
-      !cred?.passwordHash ||
-      !(await argon2.verify(cred.passwordHash, password))
-    ) {
+    const passwordOk = await verifyPasswordTimingSafe(cred?.passwordHash, password);
+    if (!customer || !customer.isActive || !cred?.passwordHash || !passwordOk) {
       throw new UnauthorizedException('Invalid email or password');
     }
     return customer;

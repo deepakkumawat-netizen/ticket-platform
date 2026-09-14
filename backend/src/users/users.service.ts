@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { AuthMethod, StaffRole } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { normalizeEmail } from '../common/normalize-email';
 import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
@@ -25,13 +26,14 @@ export class UsersService {
       const dept = await this.prisma.department.findFirst({ where: { id: dto.departmentId, orgId } });
       if (!dept) throw new BadRequestException('Department not found');
     }
-    if (await this.prisma.user.findUnique({ where: { email: dto.email } })) {
+    const email = normalizeEmail(dto.email);
+    if (await this.prisma.user.findUnique({ where: { email } })) {
       throw new ConflictException('A user with this email already exists');
     }
 
     const password = dto.password ?? randomBytes(9).toString('base64url');
     const user = await this.prisma.user.create({
-      data: { orgId, email: dto.email, name: dto.name, role: dto.role, departmentId: dto.departmentId ?? null },
+      data: { orgId, email, name: dto.name, role: dto.role, departmentId: dto.departmentId ?? null },
     });
     await this.prisma.authCredential.create({
       data: { userId: user.id, method: AuthMethod.LOCAL_PASSWORD, passwordHash: await argon2.hash(password) },

@@ -149,6 +149,12 @@ export class TicketsController {
     res.set({
       'Content-Type': file.mimeType,
       'Content-Disposition': `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+      // The declared mimeType is client-supplied at upload time (see
+      // assertAttachmentAllowed) and never sniffed against the real bytes —
+      // nosniff stops a browser from content-sniffing an allowed-but-lying
+      // upload (e.g. HTML/JS saved as text/plain) and rendering it instead
+      // of just downloading it, on top of the Content-Disposition above.
+      'X-Content-Type-Options': 'nosniff',
     });
     res.send(file.buffer);
   }

@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { StaffRole } from '@ticket-platform/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TicketTypesService } from '../ticket-types/ticket-types.service';
@@ -33,11 +34,29 @@ export class DepartmentsService {
   // live department with nothing to raise a ticket against is a dead end,
   // and there's no admin UI yet for hand-authoring one from scratch.
   async update(id: string, dto: UpdateDepartmentDto, activatedByUserId: string) {
+    // Prisma's update() throws a raw P2025 ("record not found") for a
+    // nonexistent id, which isn't an HttpException and surfaces as an
+    // unhandled 500 — pre-check so this is a clean 404 instead.
+    if (!(await this.prisma.department.findUnique({ where: { id } }))) {
+      throw new NotFoundException('Department not found');
+    }
     const updated = await this.prisma.department.update({ where: { id }, data: dto });
     if (dto.isActive) {
       const hasTicketType = await this.prisma.ticketTypeDefinition.findFirst({ where: { departmentId: id } });
       if (!hasTicketType) {
-        await this.ticketTypes.provisionDefaultTicketType(id, activatedByUserId);
+        try {
+          await this.ticketTypes.provisionDefaultTicketType(id, activatedByUserId);
+        } catch (err) {
+          // Check-then-act race: two concurrent "activate" requests can both
+          // see "no ticket type yet" and both try to provision one, and the
+          // @@unique([departmentId, key]) constraint makes the loser throw a
+          // raw P2002 instead of returning cleanly. The department is still
+          // activated either way and a ticket type now exists (the winner's),
+          // so this is a harmless double-activation, not a real error.
+          if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) {
+            throw err;
+          }
+        }
       }
     }
     return updated;

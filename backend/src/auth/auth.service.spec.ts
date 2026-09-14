@@ -87,6 +87,30 @@ describe('AuthService (login)', () => {
       expect(decoded.role).toBe(StaffRole.DEPT_ADMIN);
       expect(decoded.departmentId).toBe('dept-tech');
     });
+
+    // Without normalizing the lookup, a user who typed a different case at
+    // signup than at login would get a false "Invalid email or password" —
+    // the stored row and the login attempt must agree on casing.
+    it('logs in with a different case than the email was stored in', async () => {
+      prisma.user.findUnique.mockResolvedValue(activeUser); // stored as all-lowercase
+      await auth.validateStaff('Admin@CodeVidhya.com', plainPassword);
+      expect(prisma.user.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { email: 'admin@codevidhya.com' } }));
+    });
+
+    it('hashes the supplied password even when no account exists, so a nonexistent-email login is not measurably faster', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      // Spy on the raw CJS module (not the `import * as argon2` binding
+      // above) — ts-jest's namespace-import wrapper defines getter-only,
+      // non-configurable properties that jest.spyOn can't redefine, but it
+      // forwards to this same underlying module object, so spying here is
+      // still observed by auth.service.ts's own `import * as argon2`.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const rawArgon2 = require('argon2');
+      const hashSpy = jest.spyOn(rawArgon2, 'hash');
+      await expect(auth.validateStaff('nobody@codevidhya.com', 'whatever')).rejects.toThrow(UnauthorizedException);
+      expect(hashSpy).toHaveBeenCalledWith('whatever');
+      hashSpy.mockRestore();
+    });
   });
 
   describe('customer portal login', () => {
@@ -168,6 +192,24 @@ describe('AuthService (login)', () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'existing' });
       await expect(
         auth.signupEmployee({ name: 'Ramesh', email: 'ramesh@codevidhya.com', password: 'Password123!' }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    // Without normalizing, "Ramesh@codevidhya.com" and "ramesh@codevidhya.com"
+    // would pass User.email's case-sensitive unique constraint as two
+    // different accounts — closed by storing and checking the same lowercased
+    // form everywhere.
+    it('stores the email lowercased regardless of the case typed at signup', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({ id: 'user-new', email: 'ramesh@codevidhya.com', name: 'Ramesh', role: StaffRole.EMPLOYEE, departmentId: null, orgId: 'org-1' });
+      await auth.signupEmployee({ name: 'Ramesh', email: 'Ramesh@CodeVidhya.com', password: 'Password123!' });
+      expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ email: 'ramesh@codevidhya.com' }) }));
+    });
+
+    it('catches a duplicate signup that only differs by email case', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'existing' }); // as if ramesh@codevidhya.com already exists
+      await expect(
+        auth.signupEmployee({ name: 'Ramesh', email: 'RAMESH@codevidhya.com', password: 'Password123!' }),
       ).rejects.toThrow(ConflictException);
     });
   });

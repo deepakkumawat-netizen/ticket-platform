@@ -136,7 +136,12 @@ export class TicketsService {
     const customer = dto.requesterUserId
       ? await this.findOrCreateCustomerForStaff(staff.orgId, dto.requesterUserId)
       : await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
-    if (!customer) throw new NotFoundException('Customer not found');
+    // Same org-ownership check findOrCreateCustomerForStaff already does for
+    // the requesterUserId path — a customerId supplied directly must belong
+    // to the caller's own org too, or a guessed/leaked id from another org
+    // could get a ticket created against it (leaking that customer's
+    // name/email and emailing them about a ticket that isn't theirs).
+    if (!customer || customer.orgId !== staff.orgId) throw new NotFoundException('Customer not found');
     const customerType: CustomerType = customer.companyId ? CustomerType.B2B : CustomerType.B2C;
 
     const version = await this.ticketTypes.getLatestPublishedVersion(dto.ticketTypeDefinitionId);

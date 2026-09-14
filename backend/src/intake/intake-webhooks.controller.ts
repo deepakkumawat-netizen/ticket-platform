@@ -39,7 +39,17 @@ export class IntakeWebhooksController {
       throw new UnauthorizedException('Invalid webhook signature');
     }
 
-    const event = JSON.parse(req.rawBody.toString());
+    let event: { type?: string; data?: { email_id?: string } };
+    try {
+      event = JSON.parse(req.rawBody.toString());
+    } catch {
+      // A validly-signed payload whose body isn't JSON — nothing retrying
+      // would fix. Match handleInboundEmail's own "ignore this, don't error"
+      // shape below (a 4xx here would make Resend retry the same unparsable
+      // body forever, per its documented retry-until-2xx behavior) rather
+      // than let JSON.parse's exception surface as an uncaught 500.
+      return { ok: true as const, skipped: true as const };
+    }
     return this.intake.handleInboundEmail(event);
   }
 }

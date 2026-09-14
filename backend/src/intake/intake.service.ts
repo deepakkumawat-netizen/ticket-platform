@@ -237,32 +237,56 @@ export class IntakeService {
     }
     assertDepartmentAccess(staff, dto.departmentId);
 
-    const customer = await this.customers.findOrCreateByEmail(
-      staff.orgId,
-      query.contactName ?? query.contactEmail,
-      query.contactEmail,
-      query.contactPhone ?? undefined,
-      query.companyName ?? undefined,
-    );
-
-    const ticket = await this.tickets.create(staff, dto.departmentId, {
-      ticketTypeDefinitionId: dto.ticketTypeDefinitionId,
-      customerId: customer.id,
-      priority: dto.priority,
-      subject: query.subject,
-      description: query.description,
-      customFields: dto.customFields,
-      assignedAgentId: dto.assignedAgentId,
+    // Claim the query FIRST, atomically, before doing any of the real work
+    // below — updateMany's `where: { status: PENDING }` only succeeds for
+    // whichever concurrent request gets there first (double-click "Convert",
+    // or two admins triaging the same queue at once). The check-then-act gap
+    // above (read query, check its status, act on it) is exactly what let
+    // two concurrent conversions both pass the PENDING check and both create
+    // a real Ticket — only one could ever be linked back via
+    // convertedTicketId (which is @unique), silently orphaning the other.
+    // convertedTicketId is filled in below once the ticket actually exists;
+    // if ticket creation then fails, the catch block reverts this claim so
+    // the query isn't left wedged in CONVERTED with no ticket behind it.
+    const claim = await this.prisma.intakeQuery.updateMany({
+      where: { id, status: IntakeQueryStatus.PENDING },
+      data: { status: IntakeQueryStatus.CONVERTED, reviewedByUserId: staff.sub, reviewedAt: new Date() },
     });
+    if (claim.count === 0) {
+      throw new BadRequestException('This query was just converted or rejected by someone else');
+    }
+
+    let ticket;
+    let customer;
+    try {
+      customer = await this.customers.findOrCreateByEmail(
+        staff.orgId,
+        query.contactName ?? query.contactEmail,
+        query.contactEmail,
+        query.contactPhone ?? undefined,
+        query.companyName ?? undefined,
+      );
+
+      ticket = await this.tickets.create(staff, dto.departmentId, {
+        ticketTypeDefinitionId: dto.ticketTypeDefinitionId,
+        customerId: customer.id,
+        priority: dto.priority,
+        subject: query.subject,
+        description: query.description,
+        customFields: dto.customFields,
+        assignedAgentId: dto.assignedAgentId,
+      });
+    } catch (err) {
+      await this.prisma.intakeQuery.update({
+        where: { id },
+        data: { status: IntakeQueryStatus.PENDING, reviewedByUserId: null, reviewedAt: null },
+      });
+      throw err;
+    }
 
     await this.prisma.intakeQuery.update({
       where: { id },
-      data: {
-        status: IntakeQueryStatus.CONVERTED,
-        convertedTicketId: ticket.id,
-        reviewedByUserId: staff.sub,
-        reviewedAt: new Date(),
-      },
+      data: { convertedTicketId: ticket.id },
     });
 
     await this.prisma.auditLog.create({

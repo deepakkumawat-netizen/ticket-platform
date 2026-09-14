@@ -38,6 +38,7 @@ const PENDING_QUERY: {
 function makeHarness(overrides: Partial<typeof PENDING_QUERY> = {}) {
   const query = { ...PENDING_QUERY, ...overrides };
   const updateCalls: any[] = [];
+  const updateManyCalls: any[] = [];
   const auditLogCalls: any[] = [];
   const prisma = {
     organization: { findFirst: jest.fn().mockResolvedValue({ id: 'org-1' }) },
@@ -50,6 +51,13 @@ function makeHarness(overrides: Partial<typeof PENDING_QUERY> = {}) {
         return query;
       }),
       update: jest.fn().mockImplementation(({ data }) => updateCalls.push(data)),
+      // The atomic claim convert() does before any real work — succeeds
+      // (count: 1) whenever the query is still PENDING, same as the
+      // findFirst mock above assumes for every test in this file.
+      updateMany: jest.fn().mockImplementation(({ where, data }) => {
+        updateManyCalls.push(data);
+        return { count: where.status === query.status ? 1 : 0 };
+      }),
     },
     ticket: { findUnique: jest.fn().mockResolvedValue(null) },
     comment: { create: jest.fn() },
@@ -60,7 +68,7 @@ function makeHarness(overrides: Partial<typeof PENDING_QUERY> = {}) {
   const ai = { classifyDepartment: jest.fn().mockResolvedValue(null) };
   const config = { get: jest.fn() };
   const service = new IntakeService(prisma as any, customers as any, tickets as any, ai as any, config as any);
-  return { service, prisma, customers, tickets, ai, config, updateCalls, auditLogCalls };
+  return { service, prisma, customers, tickets, ai, config, updateCalls, updateManyCalls, auditLogCalls };
 }
 
 const CONVERT_DTO = { departmentId: 'dept-tech', ticketTypeDefinitionId: 'tt-1', priority: 'MEDIUM' } as any;
@@ -84,9 +92,27 @@ describe('IntakeService.convert', () => {
   });
 
   it('marks the query CONVERTED and links the new ticket', async () => {
-    const { service, updateCalls } = makeHarness();
+    const { service, updateCalls, updateManyCalls } = makeHarness();
     await service.convert(TECH_ADMIN, 'iq-1', CONVERT_DTO);
-    expect(updateCalls[0]).toMatchObject({ status: IntakeQueryStatus.CONVERTED, convertedTicketId: 'ticket-1', reviewedByUserId: 'u-tech-admin' });
+    // The claim (status + reviewedBy/At) happens first via the atomic
+    // updateMany, before ticket creation; convertedTicketId is only known
+    // afterward and gets a separate update() once the ticket exists.
+    expect(updateManyCalls[0]).toMatchObject({ status: IntakeQueryStatus.CONVERTED, reviewedByUserId: 'u-tech-admin' });
+    expect(updateCalls[0]).toMatchObject({ convertedTicketId: 'ticket-1' });
+  });
+
+  it('reverts the claim back to PENDING if ticket creation fails partway through', async () => {
+    const { service, tickets, updateCalls, updateManyCalls } = makeHarness();
+    tickets.create.mockRejectedValueOnce(new Error('boom'));
+    await expect(service.convert(TECH_ADMIN, 'iq-1', CONVERT_DTO)).rejects.toThrow('boom');
+    expect(updateManyCalls[0]).toMatchObject({ status: IntakeQueryStatus.CONVERTED });
+    expect(updateCalls[0]).toMatchObject({ status: IntakeQueryStatus.PENDING, reviewedByUserId: null, reviewedAt: null });
+  });
+
+  it('refuses to convert a query someone else just claimed concurrently', async () => {
+    const { service, prisma } = makeHarness();
+    (prisma.intakeQuery.updateMany as jest.Mock).mockResolvedValueOnce({ count: 0 });
+    await expect(service.convert(TECH_ADMIN, 'iq-1', CONVERT_DTO)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('refuses to convert a query that is not PENDING', async () => {

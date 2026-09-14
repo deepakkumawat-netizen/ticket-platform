@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { StaffRole } from '@ticket-platform/shared';
 import { TicketsService } from './tickets.service';
 
@@ -24,7 +25,7 @@ function makeCreateHarness(candidates: { id: string; name: string }[], geminiImp
   const prisma = {
     department: { findUnique: jest.fn().mockResolvedValue({ id: 'dept-tech', isActive: true }) },
     ticketTypeDefinition: { findUnique: jest.fn().mockResolvedValue({ id: 'tt-1', departmentId: 'dept-tech' }) },
-    customer: { findUnique: jest.fn().mockResolvedValue({ id: 'cust-1', companyId: null }) },
+    customer: { findUnique: jest.fn().mockResolvedValue({ id: 'cust-1', orgId: 'org-1', companyId: null }) },
     user: {
       findMany: jest.fn().mockResolvedValue(candidates),
       findUnique: jest.fn(),
@@ -135,5 +136,23 @@ describe('TicketsService.create — agent notification', () => {
     const { service, notify } = makeCreateHarness([]);
     await service.create(STAFF, 'dept-tech', BASE_DTO as any);
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+// Cross-org customerId guard: without this, a customerId belonging to a
+// DIFFERENT org (guessed, leaked, or left over from a prior migration) could
+// get a ticket created against it — leaking that customer's name/email into
+// a ticket the wrong org can see, and emailing the wrong person.
+describe('TicketsService.create — customerId org scoping', () => {
+  it('refuses to create a ticket for a customerId belonging to a different org', async () => {
+    const { service, prisma } = makeCreateHarness([]);
+    prisma.customer.findUnique.mockResolvedValue({ id: 'cust-1', orgId: 'org-OTHER', companyId: null });
+    await expect(service.create(STAFF, 'dept-tech', BASE_DTO as any)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('refuses to create a ticket for a customerId that does not exist at all', async () => {
+    const { service, prisma } = makeCreateHarness([]);
+    prisma.customer.findUnique.mockResolvedValue(null);
+    await expect(service.create(STAFF, 'dept-tech', BASE_DTO as any)).rejects.toBeInstanceOf(NotFoundException);
   });
 });
