@@ -28,7 +28,7 @@ export class IntakeWebhooksController {
   ) {
     const secret = this.config.get<string>('RESEND_INBOUND_WEBHOOK_SECRET');
     // Unlike every other optional integration in this codebase (Gemini,
-    // Groq, SMTP, reCAPTCHA), there is no safe "no-op until configured"
+    // Groq, SMTP), there is no safe "no-op until configured"
     // behavior here — an unset secret would mean either rejecting every
     // real webhook anyway (no way to verify it) or, far worse, silently
     // trusting unsigned requests. Refuse outright instead.

@@ -1,8 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, staffToken, staffUser } from '../../lib/api';
-import { getRecaptchaToken } from '../../lib/recaptcha';
-import { RecaptchaDisclosure } from '../../components/RecaptchaDisclosure';
 import { AuthShell } from './AuthShell';
 
 export function StaffLoginPage() {
@@ -17,8 +15,7 @@ export function StaffLoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const captchaToken = await getRecaptchaToken('login');
-      const { accessToken, user } = await api.staffLogin(email, password, captchaToken);
+      const { accessToken, user } = await api.staffLogin(email, password);
       staffToken.set(accessToken);
       staffUser.set(user);
       navigate('/app');
@@ -52,7 +49,6 @@ export function StaffLoginPage() {
       <p className="auth-switch">
         New here? <Link to="/staff/signup">Create an account</Link>
       </p>
-      <RecaptchaDisclosure />
     </AuthShell>
   );
 }

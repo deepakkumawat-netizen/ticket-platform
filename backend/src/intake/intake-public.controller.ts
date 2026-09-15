@@ -1,6 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { RecaptchaService } from '../auth/recaptcha.service';
 import { IntakeService } from './intake.service';
 import { CreateIntakeQueryDto } from './dto/create-intake-query.dto';
 
@@ -15,15 +14,11 @@ const INTAKE_THROTTLE = { default: { ttl: 60_000, limit: 10 } };
 // IntakeAdminController below.
 @Controller('intake/queries')
 export class IntakePublicController {
-  constructor(
-    private intake: IntakeService,
-    private recaptcha: RecaptchaService,
-  ) {}
+  constructor(private intake: IntakeService) {}
 
   @Post()
   @Throttle(INTAKE_THROTTLE)
   async create(@Body() dto: CreateIntakeQueryDto) {
-    await this.recaptcha.verify(dto.captchaToken, 'intake_query');
     await this.intake.createFromWebForm(dto);
     // Deliberately don't echo back the AI classification/reasoning or
     // internal id to an anonymous caller — nothing for them to act on, and

@@ -369,24 +369,22 @@ export type IntakeQuery = {
 };
 
 export const api = {
-  // captchaToken: see lib/recaptcha.ts's getRecaptchaToken() — undefined if
-  // reCAPTCHA isn't configured, backend skips verification in that case too.
-  staffLogin: (email: string, password: string, captchaToken?: string) =>
+  staffLogin: (email: string, password: string) =>
     request<{ accessToken: string; user: { id: string; email: string; name: string; role: string; departmentId: string | null } }>(
       '/auth/staff/login',
-      { method: 'POST', body: JSON.stringify({ email, password, captchaToken }) },
+      { method: 'POST', body: JSON.stringify({ email, password }) },
     ),
   // EMPLOYEE only — see auth.service.ts's signupEmployee for why this is
   // safe to leave unauthenticated.
-  staffSignup: (name: string, email: string, password: string, captchaToken?: string) =>
+  staffSignup: (name: string, email: string, password: string) =>
     request<{ accessToken: string; user: { id: string; email: string; name: string; role: string; departmentId: string | null } }>(
       '/auth/staff/signup',
-      { method: 'POST', body: JSON.stringify({ name, email, password, captchaToken }) },
+      { method: 'POST', body: JSON.stringify({ name, email, password }) },
     ),
-  portalLogin: (email: string, password: string, captchaToken?: string) =>
+  portalLogin: (email: string, password: string) =>
     request<{ accessToken: string; customer: { id: string; name: string } }>('/auth/portal/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password, captchaToken }),
+      body: JSON.stringify({ email, password }),
     }),
   health: () => request<{ status: string }>('/health'),
 
@@ -595,10 +593,8 @@ export const api = {
   // Public — no token, that's the whole point (see backend's
   // IntakePublicController). Never returns the created row or its AI
   // classification to the caller; nothing for an anonymous visitor to act on.
-  submitIntakeQuery: (
-    dto: { name: string; email: string; phone?: string; companyName?: string; subject: string; description: string },
-    captchaToken: string | undefined,
-  ) => request<{ ok: true; message: string }>('/intake/queries', { method: 'POST', body: JSON.stringify({ ...dto, captchaToken }) }),
+  submitIntakeQuery: (dto: { name: string; email: string; phone?: string; companyName?: string; subject: string; description: string }) =>
+    request<{ ok: true; message: string }>('/intake/queries', { method: 'POST', body: JSON.stringify(dto) }),
 
   listIntakeQueries: (status: IntakeQueryStatus | undefined, token: string | null) =>
     request<IntakeQuery[]>(`/intake/queries${status ? `?status=${status}` : ''}`, { token }),

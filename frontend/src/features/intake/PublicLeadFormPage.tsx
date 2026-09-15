@@ -1,7 +1,5 @@
 import { FormEvent, useState } from 'react';
 import { api } from '../../lib/api';
-import { getRecaptchaToken } from '../../lib/recaptcha';
-import { RecaptchaDisclosure } from '../../components/RecaptchaDisclosure';
 import { AuthShell } from '../auth/AuthShell';
 
 // The one genuinely public, unauthenticated page in the app — no login, no
@@ -30,11 +28,14 @@ export function PublicLeadFormPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const captchaToken = await getRecaptchaToken('intake_query');
-      await api.submitIntakeQuery(
-        { name, email, phone: phone || undefined, companyName: companyName || undefined, subject, description },
-        captchaToken,
-      );
+      await api.submitIntakeQuery({
+        name,
+        email,
+        phone: phone || undefined,
+        companyName: companyName || undefined,
+        subject,
+        description,
+      });
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send your message — please try again');
@@ -90,7 +91,6 @@ export function PublicLeadFormPage() {
           {submitting ? 'Sending…' : 'Send message'}
         </button>
       </form>
-      <RecaptchaDisclosure />
     </AuthShell>
   );
 }

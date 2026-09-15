@@ -1,8 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, customerToken } from '../../lib/api';
-import { getRecaptchaToken } from '../../lib/recaptcha';
-import { RecaptchaDisclosure } from '../../components/RecaptchaDisclosure';
 
 export function PortalLoginPage() {
   const [email, setEmail] = useState('');
@@ -16,8 +14,7 @@ export function PortalLoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      const captchaToken = await getRecaptchaToken('portal_login');
-      const { accessToken } = await api.portalLogin(email, password, captchaToken);
+      const { accessToken } = await api.portalLogin(email, password);
       customerToken.set(accessToken);
       navigate('/portal');
     } catch (err) {
@@ -44,7 +41,6 @@ export function PortalLoginPage() {
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-      <RecaptchaDisclosure />
     </div>
   );
 }

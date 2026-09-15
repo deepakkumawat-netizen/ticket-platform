@@ -7,7 +7,6 @@ import { StaffAuthController } from './staff-auth.controller';
 import { PortalAuthController } from './portal-auth.controller';
 import { StaffJwtStrategy } from './strategies/staff-jwt.strategy';
 import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
-import { RecaptchaService } from './recaptcha.service';
 
 @Module({
   imports: [
@@ -22,9 +21,7 @@ import { RecaptchaService } from './recaptcha.service';
     }),
   ],
   controllers: [StaffAuthController, PortalAuthController],
-  providers: [AuthService, StaffJwtStrategy, CustomerJwtStrategy, RecaptchaService],
-  // RecaptchaService exported so IntakeModule's public lead-form endpoint can
-  // reuse the same bot-check instead of a second implementation.
-  exports: [AuthService, RecaptchaService],
+  providers: [AuthService, StaffJwtStrategy, CustomerJwtStrategy],
+  exports: [AuthService],
 })
 export class AuthModule {}
