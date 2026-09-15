@@ -18,8 +18,6 @@ import { TicketTypeBuilderPage } from './features/admin/TicketTypeBuilderPage';
 import { DepartmentDashboardPage } from './features/dashboards/DepartmentDashboardPage';
 import { CeoDashboardPage } from './features/dashboards/CeoDashboardPage';
 import { PortalHomePage } from './features/portal/PortalHomePage';
-import { PublicLeadFormPage } from './features/intake/PublicLeadFormPage';
-import { IntakeQueuePage } from './features/admin/IntakeQueuePage';
 import { RequireAuth } from './app/RequireAuth';
 import { StaffLayout } from './app/StaffLayout';
 import { staffUser, useStaffToken, useCustomerToken } from './lib/api';
@@ -41,9 +39,13 @@ export default function App() {
 
       <Route path="/staff/login" element={<StaffLoginPage />} />
       <Route path="/staff/signup" element={<StaffSignupPage />} />
-      {/* Public — no login. Anyone can submit a query here; it lands in the
-          staff triage queue (below) rather than becoming a ticket directly. */}
-      <Route path="/contact" element={<PublicLeadFormPage />} />
+      {/* Public intake (the /contact form + the staff Intake Queue below) is
+          switched off for now (2026-09-15) — Deepak isn't running a public
+          website yet, so there's nothing to feed it. The pages and backend
+          are untouched; see PublicLeadFormPage.tsx / IntakeQueuePage.tsx and
+          backend/src/intake — re-add these two routes (and the "Intake
+          Queue" sidebar link in StaffLayout.tsx) plus set
+          PUBLIC_INTAKE_ENABLED=true on the backend to turn it back on. */}
       <Route element={<RequireAuth useToken={useStaffToken} redirectTo="/staff/login" />}>
         <Route element={<StaffLayout />}>
           <Route path="/app" element={<AppIndex />} />
@@ -51,7 +53,6 @@ export default function App() {
           <Route path="/app/dashboard/org" element={<CeoDashboardPage />} />
           <Route path="/app/tickets" element={<TicketListPage />} />
           <Route path="/app/bulk-assist" element={<BulkAssistPage />} />
-          <Route path="/app/intake" element={<IntakeQueuePage />} />
           <Route path="/app/tickets/new" element={<NewTicketPage />} />
           <Route path="/app/tickets/:id" element={<TicketDetailPage />} />
           <Route path="/app/my-tickets" element={<MyTicketsPage />} />

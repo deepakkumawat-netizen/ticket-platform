@@ -26,6 +26,14 @@ export class IntakeWebhooksController {
     @Headers('svix-timestamp') svixTimestamp?: string,
     @Headers('svix-signature') svixSignature?: string,
   ) {
+    // Public intake switched off by default (2026-09-15, Deepak's ask —
+    // see intake-public.controller.ts's matching comment). Skip rather than
+    // error: Resend retries a non-2xx response, and this isn't a transient
+    // failure that a retry would ever fix.
+    if (this.config.get<string>('PUBLIC_INTAKE_ENABLED') !== 'true') {
+      return { ok: true as const, skipped: true as const };
+    }
+
     const secret = this.config.get<string>('RESEND_INBOUND_WEBHOOK_SECRET');
     // Unlike every other optional integration in this codebase (Gemini,
     // Groq, SMTP), there is no safe "no-op until configured"

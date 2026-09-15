@@ -52,9 +52,8 @@ export function StaffLayout() {
                 </NavLink>
               )}
               <TicketsNavGroup showTicketTypes={isSuperAdmin || isDeptAdmin} />
-              <NavLink to="/app/intake" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                <InboxIcon /> Intake Queue
-              </NavLink>
+              {/* "Intake Queue" link removed (2026-09-15) — see App.tsx's
+                  routing comment for how to switch public intake back on. */}
               {isSuperAdmin && (
                 <>
                   <NavLink to="/app/departments" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
