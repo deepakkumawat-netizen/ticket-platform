@@ -703,6 +703,79 @@ body {
   color: white;
 }
 
+.app-nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Same look as .app-nav-link, but a <button> (it toggles the submenu open,
+   it doesn't navigate) so it needs its own reset for border/background/font. */
+.app-nav-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: #0369a1;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-nav-toggle:hover {
+  background: rgba(3, 105, 161, 0.1);
+  color: #075985;
+}
+
+/* Highlights when a child route is active, same as .app-nav-link.active —
+   even while collapsed, so navigating away and back still shows where you are. */
+.app-nav-toggle.active {
+  background: #4f46e5;
+  color: white;
+}
+
+.app-nav-toggle-chevron {
+  margin-left: auto;
+  transition: transform 0.15s ease;
+}
+
+.app-nav-toggle-chevron.open {
+  transform: rotate(90deg);
+}
+
+.app-nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 2px 18px;
+  padding-left: 12px;
+  border-left: 1px solid #bae6fd;
+}
+
+.app-nav-sublink {
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #0369a1;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app-nav-sublink:hover {
+  background: rgba(3, 105, 161, 0.1);
+  color: #075985;
+}
+
+.app-nav-sublink.active {
+  background: #4f46e5;
+  color: white;
+}
+
 .app-main {
   flex: 1;
   min-width: 0;

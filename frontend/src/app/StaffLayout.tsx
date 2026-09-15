@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, NotificationItem, staffToken, staffUser } from '../lib/api';
 import { AiChatWidget } from './AiChatWidget';
+
+// Paths grouped under the "Tickets" sidebar dropdown (see TicketsNavGroup) —
+// kept as one list so the "is a child route active" check and the submenu
+// links themselves can't drift apart.
+const TICKETS_GROUP_PREFIXES = ['/app/tickets', '/app/bulk-assist', '/app/ticket-types'];
 
 // Shared shell for every /app/* screen — sidebar + topbar, TailAdmin-style.
 // Individual pages (DepartmentDashboardPage, TicketListPage, ...) render
@@ -46,23 +51,10 @@ export function StaffLayout() {
                   <GridIcon /> Org Dashboard
                 </NavLink>
               )}
-              <NavLink to="/app/tickets" end className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                <TicketIcon /> Tickets
-              </NavLink>
-              <NavLink to="/app/tickets/new" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                <PlusIcon /> New Ticket
-              </NavLink>
-              <NavLink to="/app/bulk-assist" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                <SparkleIcon /> Bulk AI Assist
-              </NavLink>
+              <TicketsNavGroup showTicketTypes={isSuperAdmin || isDeptAdmin} />
               <NavLink to="/app/intake" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
                 <InboxIcon /> Intake Queue
               </NavLink>
-              {(isSuperAdmin || isDeptAdmin) && (
-                <NavLink to="/app/ticket-types" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
-                  <BuildingIcon /> Ticket Types
-                </NavLink>
-              )}
               {isSuperAdmin && (
                 <>
                   <NavLink to="/app/departments" className={({ isActive }) => `app-nav-link${isActive ? ' active' : ''}`}>
@@ -100,6 +92,53 @@ export function StaffLayout() {
         </main>
       </div>
       <AiChatWidget />
+    </div>
+  );
+}
+
+// Collapses "Tickets", "New Ticket", "Bulk AI Assist" and "Ticket Types" into
+// one expandable "Tickets" entry instead of 4 separate top-level links —
+// Deepak's ask (2026-09-15) to declutter the sidebar. Starts open whenever
+// the current route is already one of these, so following a link (e.g. from
+// the dashboard) into a child page never hides the very item you're on.
+function TicketsNavGroup({ showTicketTypes }: { showTicketTypes: boolean }) {
+  const location = useLocation();
+  const isChildRoute = TICKETS_GROUP_PREFIXES.some((prefix) => location.pathname.startsWith(prefix));
+  const [open, setOpen] = useState(isChildRoute);
+
+  useEffect(() => {
+    if (isChildRoute) setOpen(true);
+  }, [isChildRoute]);
+
+  return (
+    <div className="app-nav-group">
+      <button
+        type="button"
+        className={`app-nav-toggle${isChildRoute ? ' active' : ''}`}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <TicketIcon /> Tickets
+        <ChevronIcon className={`app-nav-toggle-chevron${open ? ' open' : ''}`} />
+      </button>
+      {open && (
+        <div className="app-nav-submenu">
+          <NavLink to="/app/tickets" end className={({ isActive }) => `app-nav-sublink${isActive ? ' active' : ''}`}>
+            All Tickets
+          </NavLink>
+          <NavLink to="/app/tickets/new" className={({ isActive }) => `app-nav-sublink${isActive ? ' active' : ''}`}>
+            New Ticket
+          </NavLink>
+          <NavLink to="/app/bulk-assist" className={({ isActive }) => `app-nav-sublink${isActive ? ' active' : ''}`}>
+            Bulk AI Assist
+          </NavLink>
+          {showTicketTypes && (
+            <NavLink to="/app/ticket-types" className={({ isActive }) => `app-nav-sublink${isActive ? ' active' : ''}`}>
+              Ticket Types
+            </NavLink>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -191,6 +230,14 @@ function TicketIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4Z" />
       <line x1="12" y1="6" x2="12" y2="18" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <polyline points="9 18 15 12 9 6" />
     </svg>
   );
 }
