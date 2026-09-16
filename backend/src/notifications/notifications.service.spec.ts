@@ -55,6 +55,21 @@ describe('NotificationsService.notifyDepartmentManagers', () => {
     ).resolves.not.toThrow();
     expect(notifyCalls).toHaveLength(0);
   });
+
+  it('excludes excludeUserId from the fan-out (a manager should not get an FYI about their own action)', async () => {
+    const { service, notifyCalls } = makeService((args) =>
+      args.where.role === StaffRole.DEPT_ADMIN ? [{ id: 'mgr-1', email: 'mgr1@co.com' }, { id: 'mgr-2', email: 'mgr2@co.com' }] : [],
+    );
+    await service.notifyDepartmentManagers(
+      'org-1',
+      'dept-tech',
+      'TICKET_STATUS_UPDATE_FYI',
+      { ticketId: 't-1' },
+      { subject: 'Update', body: 'body' },
+      'mgr-1',
+    );
+    expect(notifyCalls.map((n) => n.recipientUserId)).toEqual(['mgr-2']);
+  });
 });
 
 describe('NotificationsService.markRead', () => {

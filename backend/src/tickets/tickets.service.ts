@@ -556,17 +556,38 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
     // is a real response, so the requester should hear about it without
     // having to keep the ticket page open. INTERNAL notes never trigger
     // this (see addMyComment below too — a requester's OWN reply on their
-    // own ticket must never notify themselves about it).
+    // own ticket must never notify themselves about it). Both calls are
+    // wrapped in safeNotify (a broken mailer config must never 500 an
+    // otherwise-successful comment post) — same pattern as every other
+    // notification call site in this file.
     if (visibility === CommentVisibility.PUBLIC) {
       const displayId = `${ticket.department.key}-${ticket.ticketNumber}`;
-      await this.notifications.notifyRequester(
-        ticket.customer.email,
-        'TICKET_COMMENT_ADDED',
-        { ticketId: ticket.id, displayId, subject: ticket.subject },
-        {
-          subject: `[${displayId}] New reply — ${ticket.subject}`,
-          body: `There's a new reply on your ticket "${ticket.subject}":\n\n${dto.body}`,
-        },
+      await this.safeNotify(() =>
+        this.notifications.notifyRequester(
+          ticket.customer.email,
+          'TICKET_COMMENT_ADDED',
+          { ticketId: ticket.id, displayId, subject: ticket.subject },
+          {
+            subject: `[${displayId}] New reply — ${ticket.subject}`,
+            body: `There's a new reply on your ticket "${ticket.subject}":\n\n${dto.body}`,
+          },
+        ),
+      );
+      // Keeps the department manager in the loop on every reply, not just
+      // escalations (Deepak's ask, 2026-09-16) — excludeUserId so a manager
+      // replying on their own team's ticket doesn't get an FYI about it.
+      await this.safeNotify(() =>
+        this.notifications.notifyDepartmentManagers(
+          ticket.orgId,
+          ticket.departmentId,
+          'TICKET_REPLY_FYI',
+          { ticketId: ticket.id, displayId, subject: ticket.subject },
+          {
+            subject: `[${displayId}] New reply posted`,
+            body: `A public reply was posted on ticket "${ticket.subject}":\n\n${dto.body}`,
+          },
+          staff.sub,
+        ),
       );
     }
     return comment;
@@ -1085,6 +1106,25 @@ ${withContext.map((c) => `- id: "${c.id}", name: "${c.name}", openTickets: ${c.o
               subject: `[${displayId}] Now "${toLabel}" — ${updated.subject}`,
               body: `Your ticket "${updated.subject}" moved to "${toLabel}".`,
             },
+      ),
+    );
+
+    // Keeps the department manager in the loop on every status move an
+    // agent makes, not just escalations (Deepak's ask, 2026-09-16) —
+    // excludeUserId so a manager transitioning their own ticket doesn't get
+    // an FYI about their own action. Deliberately a distinct type from
+    // TICKET_ESCALATED — this carries no urgency, it's just an FYI.
+    await this.safeNotify(() =>
+      this.notifications.notifyDepartmentManagers(
+        staff.orgId,
+        updated.departmentId,
+        'TICKET_STATUS_UPDATE_FYI',
+        { ticketId: updated.id, displayId, subject: updated.subject, statusKey: toStatusKey, statusLabel: toLabel },
+        {
+          subject: `[${displayId}] Status update — now "${toLabel}"`,
+          body: `${updated.assignedAgent?.name ?? 'An agent'} moved ticket "${updated.subject}" to "${toLabel}".`,
+        },
+        staff.sub,
       ),
     );
 

@@ -37,16 +37,20 @@ export class NotificationsService {
     }
   }
 
-  /** The escalation fan-out target: every active DEPT_ADMIN in the ticket's
-   * department. If a department somehow has none (nobody's been onboarded as
-   * its manager yet — see seed.ts), falls back to every active org-wide
-   * SUPER_ADMIN, so an escalation is never silently dropped. */
+  /** The escalation/FYI fan-out target: every active DEPT_ADMIN in the
+   * ticket's department. If a department somehow has none (nobody's been
+   * onboarded as its manager yet — see seed.ts), falls back to every active
+   * org-wide SUPER_ADMIN, so a manager notification is never silently
+   * dropped. `excludeUserId` drops one manager from the fan-out — used so a
+   * DEPT_ADMIN who makes a change themselves (e.g. transitions their own
+   * ticket) doesn't get an FYI about their own action. */
   async notifyDepartmentManagers(
     orgId: string,
     departmentId: string,
     type: string,
     payload: Record<string, unknown>,
     email?: EmailContent,
+    excludeUserId?: string,
   ) {
     let managers = await this.prisma.user.findMany({
       where: { departmentId, role: StaffRole.DEPT_ADMIN, isActive: true },
@@ -57,6 +61,9 @@ export class NotificationsService {
         where: { orgId, role: StaffRole.SUPER_ADMIN, isActive: true },
         select: { id: true, email: true },
       });
+    }
+    if (excludeUserId) {
+      managers = managers.filter((m) => m.id !== excludeUserId);
     }
     await this.notify(managers, type, payload, email);
   }

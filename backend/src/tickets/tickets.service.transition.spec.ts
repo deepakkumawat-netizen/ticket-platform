@@ -56,7 +56,10 @@ function makeHarness(ticketOverrides: Partial<any> = {}) {
   // $transaction(tx => ...) — hand the callback this same mocked prisma
   // object as `tx` so every mock above still exercises exactly as before.
   prisma.$transaction = jest.fn().mockImplementation((cb: (tx: any) => unknown) => cb(prisma));
-  const notifications = { notifyRequester: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    notifyRequester: jest.fn().mockResolvedValue(undefined),
+    notifyDepartmentManagers: jest.fn().mockResolvedValue(undefined),
+  };
   const service = new TicketsService(prisma as any, {} as any, notifications as any, {} as any, {} as any);
   return { service, prisma, notifications, updateCalls, auditLogCalls };
 }
@@ -153,6 +156,29 @@ describe('TicketsService.transition', () => {
   it('still returns the updated ticket even if notifying the requester fails', async () => {
     const { service, notifications } = makeHarness();
     notifications.notifyRequester.mockRejectedValueOnce(new Error('SMTP down'));
+    const updated = await service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED');
+    expect(updated.statusKey).toBe('RESOLVED');
+  });
+
+  // Deepak's ask, 2026-09-16: the department manager should hear about
+  // every status move an agent makes, not just escalations.
+  it('notifies the department managers on every status move, excluding the actor themselves', async () => {
+    const { service, notifications } = makeHarness();
+    await service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED');
+    expect(notifications.notifyDepartmentManagers).toHaveBeenCalledTimes(1);
+    expect(notifications.notifyDepartmentManagers).toHaveBeenCalledWith(
+      AGENT_TECH.orgId,
+      'dept-tech',
+      'TICKET_STATUS_UPDATE_FYI',
+      expect.objectContaining({ statusKey: 'RESOLVED' }),
+      expect.anything(),
+      AGENT_TECH.sub,
+    );
+  });
+
+  it('still returns the updated ticket even if notifying the department managers fails', async () => {
+    const { service, notifications } = makeHarness();
+    notifications.notifyDepartmentManagers.mockRejectedValueOnce(new Error('mailer down'));
     const updated = await service.transition(AGENT_TECH, 'ticket-1', 'RESOLVED');
     expect(updated.statusKey).toBe('RESOLVED');
   });

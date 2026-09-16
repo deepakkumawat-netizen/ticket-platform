@@ -17,6 +17,7 @@ function makeHarness(ticketOverrides: Partial<any> = {}, existingComments: any[]
   const ticketUpdateCalls: any[] = [];
   const ticket = {
     id: 'ticket-1',
+    orgId: 'org-1',
     departmentId: 'dept-tech',
     customerId: 'cust-emp1',
     firstRespondedAt: null,
@@ -112,6 +113,40 @@ describe('TicketsService — staff comments (assign/escalate style access)', () 
     const { service, notifications } = makeHarness();
     await service.addComment(AGENT_TECH, 'ticket-1', { body: 'internal only', visibility: 'INTERNAL' } as any);
     expect(notifications.notifyRequester).not.toHaveBeenCalled();
+  });
+
+  // Deepak's ask, 2026-09-16: the department manager should hear about
+  // every public reply an agent makes, not just escalations.
+  it('notifies the department managers on a PUBLIC reply, excluding the actor themselves', async () => {
+    const { service, notifications } = makeHarness();
+    await service.addComment(AGENT_TECH, 'ticket-1', { body: 'we are looking into it', visibility: 'PUBLIC' } as any);
+    expect(notifications.notifyDepartmentManagers).toHaveBeenCalledWith(
+      'org-1',
+      'dept-tech',
+      'TICKET_REPLY_FYI',
+      expect.objectContaining({ ticketId: 'ticket-1', displayId: 'TECH-1' }),
+      expect.anything(),
+      'agent-1',
+    );
+  });
+
+  it('does not notify the department managers for an INTERNAL note', async () => {
+    const { service, notifications } = makeHarness();
+    await service.addComment(AGENT_TECH, 'ticket-1', { body: 'internal only', visibility: 'INTERNAL' } as any);
+    expect(notifications.notifyDepartmentManagers).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-16: this call site used to be the one notification call in this
+  // file NOT wrapped in safeNotify — a broken mailer config could 500 an
+  // otherwise-successful comment post. Now it's best-effort like every
+  // other notification call site.
+  it('still creates the comment even if both notifications fail', async () => {
+    const { service, notifications, commentCreateCalls } = makeHarness();
+    notifications.notifyRequester.mockRejectedValueOnce(new Error('mailer down'));
+    notifications.notifyDepartmentManagers.mockRejectedValueOnce(new Error('mailer down'));
+    const result = await service.addComment(AGENT_TECH, 'ticket-1', { body: 'still works', visibility: 'PUBLIC' } as any);
+    expect(result).toBeDefined();
+    expect(commentCreateCalls).toHaveLength(1);
   });
 
   it('listComments returns every visibility (staff sees INTERNAL + PUBLIC)', async () => {
