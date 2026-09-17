@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   api,
@@ -62,6 +62,12 @@ export function NewTicketPage() {
 
   const [aiSuggesting, setAiSuggesting] = useState(false);
   const [aiReasoning, setAiReasoning] = useState<string | null>(null);
+  const [aiAutoTriaged, setAiAutoTriaged] = useState(false);
+  // True once the person has touched the ticket-type picker themselves — a
+  // ref (not state) so the in-flight auto-triage call below can check the
+  // live value after its await, instead of the stale value from whenever
+  // that call started.
+  const typeManuallyPickedRef = useRef(false);
 
   // SUPER_ADMIN can raise a ticket in any live department; everyone else is
   // fixed to their own — mirrors assertDepartmentAccess on the backend.
@@ -76,6 +82,8 @@ export function NewTicketPage() {
   useEffect(() => {
     if (!departmentId) return;
     setTicketTypeId('');
+    typeManuallyPickedRef.current = false;
+    setAiAutoTriaged(false);
     api
       .listTicketTypes(departmentId, token)
       .then((all) => setTicketTypes(all.filter((t) => t.isActive)))
@@ -140,27 +148,57 @@ export function NewTicketPage() {
     }
   }
 
-  // Human-in-the-loop: fills ticketTypeId + priority as a starting point,
-  // never submits anything itself — the picker below still shows whatever
+  // Never submits anything itself — the picker below still shows whatever
   // it lands on so it can be overridden before Create ticket is clicked.
-  async function onSuggestWithAi() {
+  // `auto` distinguishes the two ways this fires:
+  //  - auto=false: the "Suggest ticket type & priority" button — an
+  //    explicit human request, always applied regardless of confidence,
+  //    same behavior this had before auto-triage existed.
+  //  - auto=true: fired automatically (see the effect below) once
+  //    subject+description are filled, with no click. Still always fills
+  //    the pickers so today's manual-suggest UX survives unchanged for
+  //    anything below 'high' confidence, but ALSO marks the ticket
+  //    aiAutoTriaged (sent to the backend for its audit trail — see
+  //    tickets.service.ts) only when the model self-reports 'high'
+  //    confidence, matching Deepak's 2026-09-17 call: auto-act only when
+  //    confident, suggest-only otherwise.
+  async function runTriage(auto: boolean) {
     if (!departmentId || !subject.trim() || !description.trim()) {
-      setError('Fill in the department, subject, and description first');
+      if (!auto) setError('Fill in the department, subject, and description first');
       return;
     }
     setAiSuggesting(true);
-    setError(null);
+    if (!auto) setError(null);
     try {
       const result = await api.triage(departmentId, subject, description, token);
+      // A human may have picked a type by hand while this call was in
+      // flight — never clobber that with a stale auto-suggestion.
+      if (auto && typeManuallyPickedRef.current) return;
       setTicketTypeId(result.ticketTypeId);
       setPriority(result.priority);
       setAiReasoning(result.reasoning);
+      setAiAutoTriaged(auto && result.confidence === 'high');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI suggestion failed');
+      // Auto-triage failing silently is fine — same "leave it for a human"
+      // degrade every other AI feature in this app already has; the manual
+      // button still surfaces the error since that's an explicit request.
+      if (!auto) setError(err instanceof Error ? err.message : 'AI suggestion failed');
     } finally {
       setAiSuggesting(false);
     }
   }
+
+  // Auto-triage: fires ~1s after the person stops typing a subject+
+  // description long enough to triage meaningfully, as long as they
+  // haven't already picked a ticket type by hand. Debounced so it doesn't
+  // fire a Gemini/Groq call on every keystroke.
+  useEffect(() => {
+    if (typeManuallyPickedRef.current) return;
+    if (!departmentId || subject.trim().length < 3 || description.trim().length < 8) return;
+    const timer = setTimeout(() => runTriage(true), 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departmentId, subject, description]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -191,6 +229,7 @@ export function NewTicketPage() {
           description,
           customFields: customFieldValues,
           assignedAgentId: assignedAgentId || undefined,
+          aiAutoTriaged,
         },
         token,
       );
@@ -225,7 +264,15 @@ export function NewTicketPage() {
         {departmentId && (
           <label>
             Ticket type
-            <select value={ticketTypeId} onChange={(e) => setTicketTypeId(e.target.value)} required>
+            <select
+              value={ticketTypeId}
+              onChange={(e) => {
+                typeManuallyPickedRef.current = true;
+                setAiAutoTriaged(false);
+                setTicketTypeId(e.target.value);
+              }}
+              required
+            >
               <option value="" disabled>
                 Select a ticket type…
               </option>
@@ -302,15 +349,25 @@ export function NewTicketPage() {
         </label>
 
         <div className="ai-suggest-row">
-          <button type="button" onClick={onSuggestWithAi} disabled={aiSuggesting}>
+          <button type="button" onClick={() => runTriage(false)} disabled={aiSuggesting}>
             ✨ {aiSuggesting ? 'Thinking…' : 'Suggest ticket type & priority'}
           </button>
-          {aiReasoning && <p className="ai-reasoning">{aiReasoning}</p>}
+          {aiAutoTriaged ? (
+            <p className="ai-reasoning">✓ Auto-triaged by AI (high confidence) — {aiReasoning}</p>
+          ) : (
+            aiReasoning && <p className="ai-reasoning">{aiReasoning}</p>
+          )}
         </div>
 
         <label>
           Priority
-          <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+          <select
+            value={priority}
+            onChange={(e) => {
+              setAiAutoTriaged(false);
+              setPriority(e.target.value);
+            }}
+          >
             {PRIORITIES.map((p) => (
               <option key={p} value={p}>
                 {p}

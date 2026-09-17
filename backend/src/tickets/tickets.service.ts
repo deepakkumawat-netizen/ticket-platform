@@ -244,6 +244,24 @@ export class TicketsService {
         });
       }
 
+      // dto.aiAutoTriaged: NewTicketPage sets this when it auto-applied a
+      // high-confidence AI triage suggestion with no human confirming it
+      // first (see ai.service.ts's triage() and its confidence field) —
+      // record that distinctly from an ordinary human-picked ticket type,
+      // same reasoning as TICKET_AUTO_ASSIGNED above.
+      if (dto.aiAutoTriaged) {
+        await tx.auditLog.create({
+          data: {
+            orgId: staff.orgId,
+            actorType: 'SYSTEM',
+            action: 'TICKET_AUTO_TRIAGED',
+            entityType: 'Ticket',
+            entityId: created.id,
+            afterJson: { ticketTypeDefinitionId: dto.ticketTypeDefinitionId, priority: dto.priority },
+          },
+        });
+      }
+
       return created;
     });
 
@@ -298,12 +316,19 @@ export class TicketsService {
 
   // ── AI auto-assign ────────────────────────────────────────────────────
   // Human-in-the-loop everywhere ELSE in this codebase's AI features means
-  // "suggest, never act" — auto-assign is the one deliberate exception,
-  // scoped narrowly: it only ever picks WHO works a ticket, never touches
-  // its content, status, or resolution (see the AI features doc / Deepak's
-  // explicit call: auto-assign yes, auto-resolve no). Never throws — a
-  // missing GEMINI_API_KEY, a Gemini outage, or zero available agents all
-  // degrade to "leave it Unassigned," exactly like before this existed.
+  // "suggest, never act" — auto-assign is one deliberate exception, scoped
+  // narrowly: it only ever picks WHO works a ticket, never touches its
+  // content, status, or resolution. As of 2026-09-17, auto-triage (see
+  // ai.service.ts's triage() confidence field, applied client-side by
+  // NewTicketPage) is a second deliberate exception, same narrow shape: it
+  // only picks WHAT KIND of ticket this is (type + priority) and only when
+  // the model self-reports high confidence — draft-reply/chat/insights stay
+  // strictly suggest-only, and nothing here ever auto-sends anything to a
+  // requester (Deepak's explicit call, 2026-09-17: auto-assign yes,
+  // auto-triage yes when confident, auto-reply/auto-resolve no). Never
+  // throws — a missing GEMINI_API_KEY, a Gemini outage, or zero available
+  // agents all degrade to "leave it Unassigned," exactly like before this
+  // existed.
   private async pickBestAgent(
     departmentId: string,
     subject: string,

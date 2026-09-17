@@ -467,6 +467,7 @@ export const api = {
       description: string;
       customFields?: Record<string, unknown>;
       assignedAgentId?: string;
+      aiAutoTriaged?: boolean;
     },
     token: string | null,
   ) => request<CreatedTicket>(`/departments/${departmentId}/tickets`, { method: 'POST', body: JSON.stringify(dto), token }),
@@ -549,7 +550,7 @@ export const api = {
 
   // ── AI (Gemini-powered, human-in-the-loop — see backend/src/ai) ─────
   triage: (departmentId: string, subject: string, description: string, token: string | null) =>
-    request<{ ticketTypeId: string; priority: string; reasoning: string }>(`/departments/${departmentId}/ai/triage`, {
+    request<{ ticketTypeId: string; priority: string; reasoning: string; confidence: 'high' | 'medium' | 'low' }>(`/departments/${departmentId}/ai/triage`, {
       method: 'POST',
       body: JSON.stringify({ subject, description }),
       token,

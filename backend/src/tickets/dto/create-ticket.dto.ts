@@ -1,4 +1,4 @@
-import { IsIn, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
 import { Priority } from '@ticket-platform/shared';
 
 // customFields is validated separately in TicketsService against the
@@ -43,4 +43,14 @@ export class CreateTicketDto {
   @IsOptional()
   @IsString()
   assignedAgentId?: string;
+
+  // Set by NewTicketPage when it auto-applied a high-confidence AI triage
+  // suggestion (ticketTypeDefinitionId/priority above) with no human
+  // confirmation — purely a telemetry flag for the audit trail (see
+  // TicketsService.create's TICKET_AUTO_TRIAGED entry), never trusted for
+  // anything security-relevant. A caller lying about it only mislabels its
+  // own audit entry.
+  @IsOptional()
+  @IsBoolean()
+  aiAutoTriaged?: boolean;
 }

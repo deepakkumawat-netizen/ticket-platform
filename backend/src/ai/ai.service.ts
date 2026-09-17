@@ -7,7 +7,8 @@ import { StaffJwtPayload } from '../auth/jwt-payload.interface';
 import { GeminiService } from './gemini.service';
 import { classifyByKeywords } from './department-keyword-classifier';
 
-type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string };
+type TriageConfidence = 'high' | 'medium' | 'low';
+type TriageResult = { ticketTypeId: string; priority: Priority; reasoning: string; confidence: TriageConfidence };
 type DepartmentClassification = { departmentId: string; reasoning: string };
 type LanguageCheckResult = { flagged: boolean; reason: string };
 type ChatTurn = { role: 'user' | 'assistant'; text: string };
@@ -97,9 +98,19 @@ Description: ${description}`;
   }
 
   // ── Triage agent ─────────────────────────────────────────────────────
-  // Human-in-the-loop: this only SUGGESTS a ticket type + priority for the
-  // person filling out the form to confirm or override before submitting —
-  // it never creates or modifies a ticket itself.
+  // Auto-triage exception (2026-09-17, Deepak's explicit call — see the
+  // matching comment on TicketsService.create's autoTriageThreshold): this
+  // is no longer pure "suggest, never act". NewTicketPage now fires this
+  // automatically (no button click) as soon as subject+description are
+  // filled, and auto-applies the result to the form WITHOUT waiting for a
+  // human to confirm when `confidence` comes back 'high' — same class of
+  // exception as pickBestAgent's auto-assign (an internal routing/metadata
+  // decision, never the ticket's content). Anything less than 'high' still
+  // renders as a plain suggestion for the human to review/override, exactly
+  // like before this existed. The model is asked to self-report confidence
+  // honestly rather than always claiming 'high' — it's not a hard
+  // guarantee, just a second signal on top of "picked from a real list",
+  // same spirit as this method's existing enum-membership check below.
   async triage(departmentId: string, subject: string, description: string): Promise<TriageResult> {
     const ticketTypes = await this.prisma.ticketTypeDefinition.findMany({
       where: { departmentId, isActive: true },
@@ -114,6 +125,12 @@ description below, pick the single best-matching ticket type from the provided l
 priority. Be decisive — always pick exactly one ticket type ID from the list, even if the match is
 imperfect.
 
+Also rate your own confidence in this pick as "high", "medium", or "low". Reserve "high" for cases
+where the subject/description clearly and unambiguously match one ticket type — use "medium" or "low"
+whenever the description is vague, could plausibly fit more than one type, or you're guessing. Be
+honest here — this rating controls whether a human reviews your pick before it's used, so do not
+default to "high" just to seem confident.
+
 Ticket types available:
 ${ticketTypes.map((t) => `- id: "${t.id}", name: "${t.name}"${t.description ? `, description: "${t.description}"` : ''}`).join('\n')}
 
@@ -126,12 +143,20 @@ Description: ${description}`;
         ticketTypeId: { type: 'STRING', enum: ticketTypes.map((t) => t.id) },
         priority: { type: 'STRING', enum: Object.values(Priority) },
         reasoning: { type: 'STRING' },
+        confidence: { type: 'STRING', enum: ['high', 'medium', 'low'] },
       },
-      required: ['ticketTypeId', 'priority', 'reasoning'],
+      required: ['ticketTypeId', 'priority', 'reasoning', 'confidence'],
     });
 
     if (!ticketTypes.some((t) => t.id === result.ticketTypeId)) {
       throw new BadRequestException("Gemini's suggestion didn't match a real ticket type — try again");
+    }
+    // Groq's JSON mode (the fallback path — see groq.service.ts) doesn't
+    // structurally enforce the enum the way Gemini's responseSchema does,
+    // so a malformed/missing confidence is treated as the safe default
+    // (never silently upgraded to 'high').
+    if (result.confidence !== 'high' && result.confidence !== 'medium' && result.confidence !== 'low') {
+      result.confidence = 'low';
     }
     return result;
   }
